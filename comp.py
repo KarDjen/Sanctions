@@ -32,13 +32,12 @@ def fetch_and_print_tags(uri, not_found_uris, match_count):
         pattern = re.compile('|'.join(keywords), re.IGNORECASE)
 
         # Find <p> tags with keywords in <header>
-        p_tags_with_keywords = [p_tag.get_text(" ", strip=True) for p_tag in header_tag.find_all('p') if
-                                pattern.search(p_tag.get_text())]
+        p_tags_with_keywords = [p_tag for p_tag in header_tag.find_all('p') if pattern.search(p_tag.get_text())]
 
         if p_tags_with_keywords:
             print(f"URI: {uri}")
             for tag in p_tags_with_keywords:
-                print(tag)
+                print(f"Tag: <{tag.name}> {tag.get_text(' ', strip=True)} </{tag.name}>")
             print("------------------------------------------------------")
             match_count['matched'] += 1
             found_match = True
@@ -80,82 +79,84 @@ def fetch_and_print_tags(uri, not_found_uris, match_count):
             not_found_uris.append(uri)
             match_count['not_matched'] += 1
 
-
 # Example URIs to test - replace with actual valid URIs
-test_uris = [
-    "/ewhc/ch/2021/2951",
-    "/eat/2022/36",
-    "/ewhc/pat/2022/1345",
-    "/ewhc/qb/2022/1484",
-    "/ewca/civ/2009/860",
-    "/ewca/crim/2022/381",
-    "/ewca/crim/2022/1818",
-    "/ewhc/ch/2022/789",
-    "/ewcop/2020/7",
-    "/ewfc/2022/153",
-    "/ewfc/b/2024/18",
-    "/ewfc/2022/52",
-    "/ewhc/admin/2022/2143",
-    "/ewhc/ch/2023/173",
-    "/ewhc/ch/2023/220",
-    "/ewhc/ch/2020/1726",
-    "/ewhc/ch/2022/2924",
-    "/ewhc/ch/2022/1268",
-    "/ewhc/ch/2023/2312",
-    "/ewhc/ch/2024/505",
-    "/ewhc/ch/2023/2348",
-    "/ewhc/ch/2022/2973",
-    "/ewhc/ch/2021/3385",
-    "/ewhc/ipec/2014/2084",
-    "/ewhc/pat/2006/1344",
-    "/ewhc/ch/2024/347",
-    "/ewhc/ch/2022/1244",
-    "/ewhc/ch/2022/1610",
-    "/ewhc/fam/2005/247",
-    "/ewhc/ipec/2022/1320",
-    "/ewhc/kb/2024/1525",
-    "/ewhc/admin/2024/1207",
-    "/ewhc/admlty/2022/2858",
-    "/ewhc/ch/2023/1756",
-    "/ewhc/comm/2022/3272",
-    "/ewhc/comm/2022/2799",
-    "/ewhc/comm/2023/2877",
-    "/ewhc/comm/2023/711",
-    "/ewhc/comm/2022/2702",
-    "/ewhc/admin/2023/92",
-    "/ewhc/tcc/2023/2030",
-    "/ewhc/tcc/2022/1152",
-    "/ewhc/qb/2019/1263",
-    "/ewhc/admin/2022/1770",
-    "/ewhc/admin/2008/2788",
-    "/ewhc/admlty/2022/206",
-    "/ewhc/ch/2023/944",
-    "/ewhc/comm/2012/394",
-    "/ewhc/comm/2022/1512",
-    "/ewhc/comm/2022/219",
-    "/ewhc/admin/2022/1635",
-    "/ewhc/tcc/2017/29",
-    "/ewhc/tcc/2022/1814",
-    "/ewhc/scco/2022/2663",
-    "/ewhc/ipec/2022/652",
-    "/ewhc/scco/2022/1538",
-    "/ukait/2008/50",
-    "/ukftt/tc/2022/305",
-    "/ukftt/grc/2023/590",
-    "/ukftt/tc/2023/867",
-    "/ukpc/2010/14",
-    "/uksc/2022/1",
-    "/ukut/aac/2017/25",
-    "/ukut/aac/2022/102",
-    "/ukut/aac/2022/103",
-    "/ukut/iac/2020/127",
-    "/ukut/lc/2022/153",
-    "/ukut/tcc/2022/298",
-    "/ewhc/ch/2022/1419",
-    "/ewhc/admin/2019/3242",
-    "/ewhc/ch/2022/2428"
-]
+test_uris = ['/ewca/crim/2022/381', '/ewhc/ch/2021/2951', '/ewca/crim/2022/1818', '/ewhc/comm/2022/2702', '/ewhc/qb/2019/1263', '/ewhc/comm/2022/1512', '/ewhc/scco/2022/2663', '/ukftt/grc/2023/590', '/uksc/2022/1', '/ukut/tcc/2022/298']
 
+# test_uris = [
+#     "/ewhc/ch/2021/2951",
+#     "/eat/2022/36",
+#     "/ewhc/pat/2022/1345",
+#     "/ewhc/qb/2022/1484",
+#     "/ewca/civ/2009/860",
+#     "/ewca/crim/2022/381",
+#     "/ewca/crim/2022/1818",
+#     "/ewhc/ch/2022/789",
+#     "/ewcop/2020/7",
+#     "/ewfc/2022/153",
+#     "/ewfc/b/2024/18",
+#     "/ewfc/2022/52",
+#     "/ewhc/admin/2022/2143",
+#     "/ewhc/ch/2023/173",
+#     "/ewhc/ch/2023/220",
+#     "/ewhc/ch/2020/1726",
+#     "/ewhc/ch/2022/2924",
+#     "/ewhc/ch/2022/1268",
+#     "/ewhc/ch/2023/2312",
+#     "/ewhc/ch/2024/505",
+#     "/ewhc/ch/2023/2348",
+#     "/ewhc/ch/2022/2973",
+#     "/ewhc/ch/2021/3385",
+#     "/ewhc/ipec/2014/2084",
+#     "/ewhc/pat/2006/1344",
+#     "/ewhc/ch/2024/347",
+#     "/ewhc/ch/2022/1244",
+#     "/ewhc/ch/2022/1610",
+#     "/ewhc/fam/2005/247",
+#     "/ewhc/ipec/2022/1320",
+#     "/ewhc/kb/2024/1525",
+#     "/ewhc/admin/2024/1207",
+#     "/ewhc/admlty/2022/2858",
+#     "/ewhc/ch/2023/1756",
+#     "/ewhc/comm/2022/3272",
+#     "/ewhc/comm/2022/2799",
+#     "/ewhc/comm/2023/2877",
+#     "/ewhc/comm/2023/711",
+#     "/ewhc/comm/2022/2702",
+#     "/ewhc/admin/2023/92",
+#     "/ewhc/tcc/2023/2030",
+#     "/ewhc/tcc/2022/1152",
+#     "/ewhc/qb/2019/1263",
+#     "/ewhc/admin/2022/1770",
+#     "/ewhc/admin/2008/2788",
+#     "/ewhc/admlty/2022/206",
+#     "/ewhc/ch/2023/944",
+#     "/ewhc/comm/2012/394",
+#     "/ewhc/comm/2022/1512",
+#     "/ewhc/comm/2022/219",
+#     "/ewhc/admin/2022/1635",
+#     "/ewhc/tcc/2017/29",
+#     "/ewhc/tcc/2022/1814",
+#     "/ewhc/scco/2022/2663",
+#     "/ewhc/ipec/2022/652",
+#     "/ewhc/scco/2022/1538",
+#     "/ukait/2008/50",
+#     "/ukftt/tc/2022/305",
+#     "/ukftt/grc/2023/590",
+#     "/ukftt/tc/2023/867",
+#     "/ukpc/2010/14",
+#     "/uksc/2022/1",
+#     "/ukut/aac/2017/25",
+#     "/ukut/aac/2022/102",
+#     "/ukut/aac/2022/103",
+#     "/ukut/iac/2020/127",
+#     "/ukut/lc/2022/153",
+#     "/ukut/tcc/2022/298",
+#     "/ewhc/ch/2022/1419",
+#     "/ewhc/admin/2019/3242",
+#     "/ewhc/ch/2022/2428"
+# ]
+
+# Initialize counters and lists to track URIs
 # Initialize counters and lists to track URIs
 match_count = {'matched': 0, 'not_matched': 0}
 not_found_uris = []
