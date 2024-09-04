@@ -1,2 +1,0 @@
-Log Details:
-{{log_details}}
