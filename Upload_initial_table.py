@@ -1,14 +1,30 @@
+"""
+This script is responsible for uploading the initial table to the database. It reads data from a spreadsheet,
+creates a new table in the database, and inserts the data into the new table. It also logs changes to an audit table,
+which keeps track of the changes made to the data over time for auditing purposes. The audit table is built one line one
+for each change made to the data.
+
+The script uses the pyodbc library to connect to the SQL Server database and pandas to read data from the spreadsheet.
+The script also uses the openpyxl library to load the spreadsheet and extract data from it.
+"""
+
+# Import necessary libraries
 import pyodbc
 import pandas as pd
 from openpyxl import load_workbook
+import datetime
+import logging
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Define a class to connect to the databaset
 class ConnectToDb:
-    db_name = ''
-    conn_str = ''
 
+    # Initialize the class with the database name and connection string (to locate in .env file)
     def __init__(self, db_name):
-        ConnectToDb.db_name = db_name
-        ConnectToDb.conn_str = (
+        self.db_name = db_name
+        self.conn_str = (
             f'DRIVER={{SQL Server}};'
             f'SERVER=SRV-SQL01\\SQL02;'
             f'DATABASE={db_name};'
@@ -16,311 +32,317 @@ class ConnectToDb:
             f'PWD=Ax10mPar1$'
         )
 
-    @staticmethod
-    def get_data_from_sql(request):
+    # Method to execute SQL commands
+    def execute_sql_command(self, command):
+        # Try to connect to the database and execute the command
         try:
-            cnx = pyodbc.connect(ConnectToDb.conn_str)
-            df = pd.read_sql(request, cnx)
-            cnx.close()
-            return df
-        except Exception as e:
-            print(f"Error reading from SQL: {e}")
-            return None
-
-    @staticmethod
-    def execute_sql_command(command):
-        try:
-            cnx = pyodbc.connect(ConnectToDb.conn_str)
+            cnx = pyodbc.connect(self.conn_str)
             cursor = cnx.cursor()
             cursor.execute(command)
             cnx.commit()
             cursor.close()
             cnx.close()
         except Exception as e:
-            print(f"Error executing SQL command: {e}")
+            logging.error(f"Error executing SQL command: {e}")
 
-    @staticmethod
-    def insert_data_to_sql(dataframe, table_name):
+    # Method to insert data into the database
+    def insert_data_to_sql(self, dataframe, table_name):
         try:
-            cnx = pyodbc.connect(ConnectToDb.conn_str)
+            cnx = pyodbc.connect(self.conn_str)
             cursor = cnx.cursor()
+
+            # Define insertable columns (Non-computed columns without square brackets)
+            insert_columns = [
+                "COUNTRY_NAME_ENG", "COUNTRY_NAME_FR", "COUNTRY_CODE_ISO_2", "COUNTRY_CODE_ISO_3",
+                "CPI_SCORE", "CPI_RANK", "FR_ASSET_FREEEZE", "FR_SECTORAL_EMBARGO",
+                "FR_MILITARY_EMBARGO", "FR_INTERNAL_REPRESSION_EQUIPMENT", "FR_INTERNAL_REPRESSION",
+                "FR_SECTORAL_RESTRICTIONS", "FR_FINANCIAL_RESTRICTIONS", "FR_TRAVEL_BANS",
+                "EU_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE", "EU_INVESTMENTS",
+                "EU_FINANCIAL_MEASURES", "EU_AML_HIGH_RISK_COUNTRIES", "US_OFAC_SANCTIONS",
+                "FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION",
+                "FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING",
+                "EU_LIST_OF_NON_COOPERATIVE_JURISDICTIONS", "FR_LIST_OF_NON_COOPERATIVE_JURISDICTIONS",
+                "UK_FINANCIAL_SANCTIONS"
+            ]
+
+            # Define the SQL column names (with square brackets for SQL syntax)
+            sql_insert_columns = [f"[{col}]" for col in insert_columns]
+
+            placeholders = ",".join(["?"] * len(insert_columns))
+
+            # Generate SQL query
+            sql_template = f"""
+                INSERT INTO {table_name} (
+                    {", ".join(sql_insert_columns)}
+                ) VALUES ({placeholders})
+            """
+
             for index, row in dataframe.iterrows():
-                sql = f"""
-                    INSERT INTO {table_name} (
-                        [COUNTRY_NAME_(ENG)], [COUNTRY_NAME_(FR)], [COUNTRY_CODE_(ISO_2)], 
-                        [COUNTRY_CODE_(ISO_3)], [LIST], [LEVEL_OF_RISK], [LEVEL_OF_VIGILANCE],
-                        [CPI_SCORE], [CPI_RANK], [FR__-_ASSET_FREEEZE], [FR_-_SECTORAL_EMBARGO],
-                        [FR_-_MILITARY__EMBARGO], [FR_-_INTERNAL_REPRESSION_EQUIPMENT],
-                        [FR_-_INTERNAL_REPRESSION], [FR_-_SECTORAL_RESTRICTIONS],
-                        [FR_-_FINANCIAL_RESTRICTIONS], [FR_-_TRAVEL_BANS],
-                        [EU_-_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE],
-                        [EU_-_INVESTMENTS], [EU_-_FINANCIAL_MEASURES],
-                        [EU_-_AML_HIGH-RISK_COUNTRIES], [US_-_OFAC__SANCTION_PROGRAM__(PER_COUNTRY)],
-                        [FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION],
-                        [FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING],
-                        [EU_-_LIST_OF_NON-COOPERATIVE_JURISDICTIONS],
-                        [FR__-__LIST_OF_NON-COOPERATIVE_JURISDICTIONS],
-                        [UK_FINANCIAL_SANCTIONS_PROGRAM_(PER_PROGRAM)]
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """
-                cursor.execute(sql, row.values.tolist())
+                values_to_insert = row[insert_columns].tolist()
+
+                if len(values_to_insert) == len(insert_columns):
+                    # Log the query and the values for debugging purposes
+                    logging.info(f"Executing SQL: {sql_template}")
+                    logging.info(f"With Values: {values_to_insert}")
+
+                    cursor.execute(sql_template, values_to_insert)
+                else:
+                    logging.warning(f"Skipping row {index} due to mismatched column count.")
+
             cnx.commit()
             cursor.close()
             cnx.close()
-        except Exception as e:
-            print(f"Error inserting data into SQL: {e}")
 
-    @staticmethod
-    def drop_table_if_exists(table_name):
+            logging.info("Data inserted successfully.")
+
+        except Exception as e:
+            logging.error(f"Error inserting data into SQL: {e}")
+
+    # Method to drop a table if it exists for resetting purpose
+    def drop_table_if_exists(self, table_name):
         try:
-            cnx = pyodbc.connect(ConnectToDb.conn_str)
+            cnx = pyodbc.connect(self.conn_str)
             cursor = cnx.cursor()
             cursor.execute(f"IF OBJECT_ID('{table_name}', 'U') IS NOT NULL DROP TABLE {table_name}")
             cnx.commit()
             cursor.close()
             cnx.close()
+            logging.info(f"Table {table_name} dropped successfully.")
         except Exception as e:
-            print(f"Error dropping table {table_name}: {e}")
+            logging.error(f"Error dropping table {table_name}: {e}")
 
-    @staticmethod
-    def update_sql_logic():
+    # Method to create an audit table for logging changes to TblSanctionsMap
+    def create_audit_table(self):
         try:
-            cnx = pyodbc.connect(ConnectToDb.conn_str)
-            cursor = cnx.cursor()
+            # Connect to the database
+            with pyodbc.connect(self.conn_str) as cnx:
+                with cnx.cursor() as cursor:
+                    # Drop the TblSanctionsMap_Audit table if it exists
+                    cursor.execute("""
+                        IF OBJECT_ID('TblSanctionsMap_Audit', 'U') IS NOT NULL
+                        DROP TABLE TblSanctionsMap_Audit;
+                    """)
+                    cnx.commit()
+                    logging.info("TblSanctionsMap_Audit table dropped successfully.")
 
-            # SQL logic adapted from the provided Excel formula
-            sql_update = """
-            UPDATE TblCountries_New
-            SET 
-                [LIST] = CASE
-                    WHEN ([FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'YES' OR [COUNTRY_NAME_(ENG)] = 'CUBA') THEN 'BLACK'
-                    WHEN ([EU_-_AML_HIGH-RISK_COUNTRIES] = 'YES' OR 
-                          [FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'YES' OR 
-                          [EU_-_LIST_OF_NON-COOPERATIVE_JURISDICTIONS] = 'YES' OR 
-                          [FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'YES' OR 
-                          [FR__-__LIST_OF_NON-COOPERATIVE_JURISDICTIONS] = 'YES') 
-                         AND [FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'NO' THEN 'GREY'
-                    WHEN ([FR_-_SECTORAL_EMBARGO] = 'YES' OR 
-                          [FR_-_MILITARY__EMBARGO] = 'YES' OR 
-                          [FR_-_INTERNAL_REPRESSION_EQUIPMENT] = 'YES' OR 
-                          [FR_-_INTERNAL_REPRESSION] = 'YES' OR 
-                          [FR_-_SECTORAL_RESTRICTIONS] = 'YES' OR 
-                          [FR_-_FINANCIAL_RESTRICTIONS] = 'YES' OR
-                          [FR_-_TRAVEL_BANS] = 'YES' OR 
-                          [EU_-_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE] = 'YES' OR 
-                          [EU_-_INVESTMENTS] = 'YES' OR 
-                          [FR__-_ASSET_FREEEZE] = 'YES' OR 
-                          [EU_-_FINANCIAL_MEASURES] = 'YES' OR 
-                          [US_-_OFAC__SANCTION_PROGRAM__(PER_COUNTRY)] = 'YES') 
-                         AND [EU_-_AML_HIGH-RISK_COUNTRIES] = 'NO' 
-                         AND [FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'NO' 
-                         AND [EU_-_LIST_OF_NON-COOPERATIVE_JURISDICTIONS] = 'NO' 
-                         AND [FR__-__LIST_OF_NON-COOPERATIVE_JURISDICTIONS] = 'NO' 
-                         AND [UK_FINANCIAL_SANCTIONS_PROGRAM_(PER_PROGRAM)] = 'NO' THEN 'RED'
-                    WHEN [CPI_SCORE] >= 50 THEN 'GREEN'
-                    ELSE 'AMBER'
-                END,
-                [LEVEL_OF_RISK] = CASE
-                    WHEN ([FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'YES' OR [COUNTRY_NAME_(ENG)] = 'CUBA') THEN 'PROHIBITED'
-                    WHEN ([EU_-_AML_HIGH-RISK_COUNTRIES] = 'YES' OR 
-                          [FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'YES' OR 
-                          [EU_-_LIST_OF_NON-COOPERATIVE_JURISDICTIONS] = 'YES' OR 
-                          [FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'YES' OR 
-                          [FR__-__LIST_OF_NON-COOPERATIVE_JURISDICTIONS] = 'YES') 
-                         AND [FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'NO' THEN 'HIGH RISK OR PROHIBITED'
-                    WHEN ([FR_-_SECTORAL_EMBARGO] = 'YES' OR 
-                          [FR_-_MILITARY__EMBARGO] = 'YES' OR 
-                          [FR_-_INTERNAL_REPRESSION_EQUIPMENT] = 'YES' OR 
-                          [FR_-_INTERNAL_REPRESSION] = 'YES' OR 
-                          [FR_-_SECTORAL_RESTRICTIONS] = 'YES' OR 
-                          [FR_-_FINANCIAL_RESTRICTIONS] = 'YES' OR
-                          [FR_-_TRAVEL_BANS] = 'YES' OR 
-                          [EU_-_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE] = 'YES' OR 
-                          [EU_-_INVESTMENTS] = 'YES' OR 
-                          [FR__-_ASSET_FREEEZE] = 'YES' OR 
-                          [EU_-_FINANCIAL_MEASURES] = 'YES' OR 
-                          [US_-_OFAC__SANCTION_PROGRAM__(PER_COUNTRY)] = 'YES') 
-                         AND [EU_-_AML_HIGH-RISK_COUNTRIES] = 'NO' 
-                         AND [FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'NO' 
-                         AND [EU_-_LIST_OF_NON-COOPERATIVE_JURISDICTIONS] = 'NO' 
-                         AND [FR__-__LIST_OF_NON-COOPERATIVE_JURISDICTIONS] = 'NO' 
-                         AND [UK_FINANCIAL_SANCTIONS_PROGRAM_(PER_PROGRAM)] = 'NO' THEN 'HIGH RISK'
-                    WHEN [CPI_SCORE] >= 50 THEN 'LOW RISK'
-                    ELSE 'MEDIUM RISK'
-                END,
-                [LEVEL_OF_VIGILANCE] = CASE
-                    WHEN ([FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'YES' OR [COUNTRY_NAME_(ENG)] = 'CUBA') THEN 'PROHIBITED'
-                    WHEN ([EU_-_AML_HIGH-RISK_COUNTRIES] = 'YES' OR 
-                          [FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'YES' OR 
-                          [EU_-_LIST_OF_NON-COOPERATIVE_JURISDICTIONS] = 'YES' OR 
-                          [FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'YES' OR 
-                          [FR__-__LIST_OF_NON-COOPERATIVE_JURISDICTIONS] = 'YES') 
-                         AND [FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'NO' THEN 'ENHANCED VIGILANCE OR PROHIBITED'
-                    WHEN ([FR_-_SECTORAL_EMBARGO] = 'YES' OR 
-                          [FR_-_MILITARY__EMBARGO] = 'YES' OR 
-                          [FR_-_INTERNAL_REPRESSION_EQUIPMENT] = 'YES' OR 
-                          [FR_-_INTERNAL_REPRESSION] = 'YES' OR 
-                          [FR_-_SECTORAL_RESTRICTIONS] = 'YES' OR 
-                          [FR_-_FINANCIAL_RESTRICTIONS] = 'YES' OR
-                          [FR_-_TRAVEL_BANS] = 'YES' OR 
-                          [EU_-_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE] = 'YES' OR 
-                          [EU_-_INVESTMENTS] = 'YES' OR 
-                          [FR__-_ASSET_FREEEZE] = 'YES' OR 
-                          [EU_-_FINANCIAL_MEASURES] = 'YES' OR 
-                          [US_-_OFAC__SANCTION_PROGRAM__(PER_COUNTRY)] = 'YES') 
-                         AND [EU_-_AML_HIGH-RISK_COUNTRIES] = 'NO' 
-                         AND [FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'NO' 
-                         AND [EU_-_LIST_OF_NON-COOPERATIVE_JURISDICTIONS] = 'NO' 
-                         AND [FR__-__LIST_OF_NON-COOPERATIVE_JURISDICTIONS] = 'NO' 
-                         AND [UK_FINANCIAL_SANCTIONS_PROGRAM_(PER_PROGRAM)] = 'NO' THEN 'ENHANCED VIGILANCE'
-                    WHEN [CPI_SCORE] >= 50 THEN 'STANDARD VIGILANCE'
-                    ELSE 'ENHANCED VIGILANCE'
-                END
-            """
-
-            cursor.execute(sql_update)
-            cnx.commit()
-            cursor.close()
-            cnx.close()
+                    # Create a new TblSanctionsMap_Audit table
+                    cursor.execute("""
+                        CREATE TABLE TblSanctionsMap_Audit (
+                            AuditID INT IDENTITY(1,1) PRIMARY KEY,
+                            CountryName NVARCHAR(255),
+                            ColumnName NVARCHAR(255),
+                            OldValue NVARCHAR(MAX),
+                            NewValue NVARCHAR(MAX),
+                            UpdatedAt DATETIME DEFAULT GETDATE()
+                        )
+                    """)
+                    cnx.commit()
+                    logging.info("TblSanctionsMap_Audit table created successfully.")
         except Exception as e:
-            print(f"Error executing SQL logic update: {e}")
+            logging.error(f"Error creating TblSanctionsMap_Audit table: {e}")
 
+# Method to read data from the spreadsheet
 def read_spreadsheet(spreadsheet_path):
-    # Load the workbook
-    workbook = load_workbook(spreadsheet_path)
-    sheet = workbook.active
-
-    # Convert sheet to DataFrame
-    data = sheet.values
-    columns = next(data)[0:]  # Assuming the first row is the header
-    columns = [col.replace('\n', ' ').replace(' ', '_').upper() for col in columns]  # Normalize column names
-    df = pd.DataFrame(data, columns=columns)
-
-    print("Columns in the DataFrame:", df.columns)  # Add this line to print the column names
-
-    return df, workbook, sheet
-
-def print_table_content_as_dataframe(table_name):
     try:
-        cnx = pyodbc.connect(ConnectToDb.conn_str)
-        df = pd.read_sql(f"SELECT * FROM {table_name}", cnx)
-        pd.set_option('display.max_columns', None)  # Ensure all columns are printed
-        cnx.close()
-        return df
+        workbook = load_workbook(spreadsheet_path, data_only=True)
+        sheet = workbook.active
+        data = sheet.values
+        columns = next(data)[0:]
+        columns = [col.replace('\n', ' ').replace(' ', '_').upper() for col in columns]
+        df = pd.DataFrame(data, columns=columns)
+
+        df.rename(columns={'COUNTRY_NAME_(ENG)': 'COUNTRY_NAME_ENG'}, inplace=True)
+        df.rename(columns={'COUNTRY_NAME_(FR)': 'COUNTRY_NAME_FR'}, inplace=True)
+        df.rename(columns={'COUNTRY_CODE_(ISO_2)': 'COUNTRY_CODE_ISO_2'}, inplace=True)
+        df.rename(columns={'COUNTRY_CODE_(ISO_3)': 'COUNTRY_CODE_ISO_3'}, inplace=True)
+        df.rename(columns={'FR__-_ASSET_FREEEZE': 'FR_ASSET_FREEEZE'}, inplace=True)
+        df.rename(columns={'FR_-_SECTORAL_EMBARGO': 'FR_SECTORAL_EMBARGO'}, inplace=True)
+        df.rename(columns={'FR_-_MILITARY__EMBARGO': 'FR_MILITARY_EMBARGO'}, inplace=True)
+        df.rename(columns={'FR_-_INTERNAL_REPRESSION_EQUIPMENT': 'FR_INTERNAL_REPRESSION_EQUIPMENT'}, inplace=True)
+        df.rename(columns={'FR_-_INTERNAL_REPRESSION': 'FR_INTERNAL_REPRESSION'}, inplace=True)
+        df.rename(columns={'FR_-_SECTORAL_RESTRICTIONS': 'FR_SECTORAL_RESTRICTIONS'}, inplace=True)
+        df.rename(columns={'FR_-_FINANCIAL_RESTRICTIONS': 'FR_FINANCIAL_RESTRICTIONS'}, inplace=True)
+        df.rename(columns={'FR_-_TRAVEL_BANS': 'FR_TRAVEL_BANS'}, inplace=True)
+        df.rename(columns={'EU_-_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE': 'EU_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE'}, inplace=True)
+        df.rename(columns={'EU_-_INVESTMENTS': 'EU_INVESTMENTS'}, inplace=True)
+        df.rename(columns={'EU_-_FINANCIAL_MEASURES': 'EU_FINANCIAL_MEASURES'}, inplace=True)
+        df.rename(columns={'EU_-_AML_HIGH-RISK_COUNTRIES': 'EU_AML_HIGH_RISK_COUNTRIES'}, inplace=True)
+        df.rename(columns={'US_-_OFAC__SANCTION_PROGRAM__(PER_COUNTRY)': 'US_OFAC_SANCTIONS'}, inplace=True)
+        df.rename(columns={'FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION': 'FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION'}, inplace=True)
+        df.rename(columns={'FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING': 'FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING'}, inplace=True)
+        df.rename(columns={'EU_-_LIST_OF_NON-COOPERATIVE_JURISDICTIONS': 'EU_LIST_OF_NON_COOPERATIVE_JURISDICTIONS'}, inplace=True)
+        df.rename(columns={'FR__-__LIST_OF_NON-COOPERATIVE_JURISDICTIONS': 'FR_LIST_OF_NON_COOPERATIVE_JURISDICTIONS'}, inplace=True)
+        df.rename(columns={'UK_FINANCIAL_SANCTIONS_PROGRAM_(PER_PROGRAM)': 'UK_FINANCIAL_SANCTIONS'}, inplace=True)
+
+
+
+        logging.info("Spreadsheet read successfully.")
+        return df, workbook, sheet
     except Exception as e:
-        print(f"Error reading table {table_name}: {e}")
-        return None
-
-def list_all_tables():
-    try:
-        cnx = pyodbc.connect(ConnectToDb.conn_str)
-        cursor = cnx.cursor()
-        cursor.execute("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'")
-        tables = cursor.fetchall()
-        print("All tables in the database:")
-        for table in tables:
-            print(table[0])
-        cursor.close()
-        cnx.close()
-    except Exception as e:
-        print(f"Error listing all tables: {e}")
-
-def update_spreadsheet(df, workbook, sheet, updated_data):
-    # Update the dataframe with the updated data
-    for index, row in updated_data.iterrows():
-        for col_num, value in enumerate(row, start=1):
-            sheet.cell(row=index + 2, column=col_num, value=value)
-
-    # Save the updated workbook
-    workbook.save('updated_' + spreadsheet_path)
+        logging.error(f"Error reading spreadsheet: {e}")
+        return None, None, None
 
 def main():
+
+    # Define the path to the spreadsheet, the new table name, and the database name
     spreadsheet_path = 'U:\\New folder1\\BookTest.xlsx'
-    new_table_name = 'TblCountries_New'
+    new_table_name = 'TblSanctionsMap'
     db_name = 'AXIOM_PARIS_TEST_CYRILLE'
 
+    # Connect to the database
     db = ConnectToDb(db_name)
 
-    print("Reading data from the spreadsheet...")
+    # Read data from the spreadsheet
+    logging.info("Reading data from the spreadsheet...")
     df, workbook, sheet = read_spreadsheet(spreadsheet_path)
 
-    # Convert appropriate columns to numeric
-    df['CPI_SCORE'] = pd.to_numeric(df['CPI_SCORE'], errors='coerce')
-    df['CPI_RANK'] = pd.to_numeric(df['CPI_RANK'], errors='coerce')
+    # If the DataFrame is not None, proceed with database operations
+    if df is not None:
 
-    # Handle NaN values - here, we fill NaN with 0; adjust as needed
-    df['CPI_SCORE'] = df['CPI_SCORE'].fillna(0)
-    df['CPI_RANK'] = df['CPI_RANK'].fillna(0)
+        # Clean the column names
+        df['CPI_SCORE'] = pd.to_numeric(df['CPI_SCORE'], errors='coerce').fillna(0)
+        df['CPI_RANK'] = pd.to_numeric(df['CPI_RANK'], errors='coerce').fillna(0)
 
-    # Check maximum length of data in each column
-    column_lengths = {col: max(df[col].astype(str).apply(len)) for col in df.columns}
-    print("Column lengths:", column_lengths)
+        # Get the maximum length of each column
+        column_lengths = {col: max(df[col].astype(str).apply(len)) for col in df.columns}
+        logging.info(f"Column lengths: {column_lengths}")
 
-    print("Dropping the existing table if it exists...")
-    ConnectToDb.drop_table_if_exists(new_table_name)
-    print(f"Table {new_table_name} dropped successfully if it existed.")
+        # Drop the existing table if it exists
+        logging.info("Dropping the existing table if it exists...")
+        db.drop_table_if_exists(new_table_name)
 
-    print("Creating new table...")
-    create_table_command = f"""
-        CREATE TABLE {new_table_name} (
-            [COUNTRY_NAME_(ENG)] NVARCHAR({column_lengths['COUNTRY_NAME_(ENG)']}),
-            [COUNTRY_NAME_(FR)] NVARCHAR({column_lengths['COUNTRY_NAME_(FR)']}),
-            [COUNTRY_CODE_(ISO_2)] NVARCHAR({column_lengths['COUNTRY_CODE_(ISO_2)']}),
-            [COUNTRY_CODE_(ISO_3)] NVARCHAR({column_lengths['COUNTRY_CODE_(ISO_3)']}),
-            [LIST] NVARCHAR({column_lengths['LIST']}),
-            [LEVEL_OF_RISK] NVARCHAR({column_lengths['LEVEL_OF_RISK']}),
-            [LEVEL_OF_VIGILANCE] NVARCHAR({column_lengths['LEVEL_OF_VIGILANCE']}),
-            [CPI_SCORE] INT,
-            [CPI_RANK] INT,
-            [FR__-_ASSET_FREEEZE] NVARCHAR({column_lengths['FR__-_ASSET_FREEEZE']}),
-            [FR_-_SECTORAL_EMBARGO] NVARCHAR({column_lengths['FR_-_SECTORAL_EMBARGO']}),
-            [FR_-_MILITARY__EMBARGO] NVARCHAR({column_lengths['FR_-_MILITARY__EMBARGO']}),
-            [FR_-_INTERNAL_REPRESSION_EQUIPMENT] NVARCHAR({column_lengths['FR_-_INTERNAL_REPRESSION_EQUIPMENT']}),
-            [FR_-_INTERNAL_REPRESSION] NVARCHAR({column_lengths['FR_-_INTERNAL_REPRESSION']}),
-            [FR_-_SECTORAL_RESTRICTIONS] NVARCHAR({column_lengths['FR_-_SECTORAL_RESTRICTIONS']}),
-            [FR_-_FINANCIAL_RESTRICTIONS] NVARCHAR({column_lengths['FR_-_FINANCIAL_RESTRICTIONS']}),
-            [FR_-_TRAVEL_BANS] NVARCHAR({column_lengths['FR_-_TRAVEL_BANS']}),
-            [EU_-_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE] NVARCHAR({column_lengths['EU_-_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE']}),
-            [EU_-_INVESTMENTS] NVARCHAR({column_lengths['EU_-_INVESTMENTS']}),
-            [EU_-_FINANCIAL_MEASURES] NVARCHAR({column_lengths['EU_-_FINANCIAL_MEASURES']}),
-            [EU_-_AML_HIGH-RISK_COUNTRIES] NVARCHAR({column_lengths['EU_-_AML_HIGH-RISK_COUNTRIES']}),
-            [US_-_OFAC__SANCTION_PROGRAM__(PER_COUNTRY)] NVARCHAR({column_lengths['US_-_OFAC__SANCTION_PROGRAM__(PER_COUNTRY)']}),
-            [FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] NVARCHAR({column_lengths['FATF_-_HIGH-RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION']}),
-            [FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING] NVARCHAR({column_lengths['FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING']}),
-            [EU_-_LIST_OF_NON-COOPERATIVE_JURISDICTIONS] NVARCHAR({column_lengths['EU_-_LIST_OF_NON-COOPERATIVE_JURISDICTIONS']}),
-            [FR__-__LIST_OF_NON-COOPERATIVE_JURISDICTIONS] NVARCHAR({column_lengths['FR__-__LIST_OF_NON-COOPERATIVE_JURISDICTIONS']}),
-            [UK_FINANCIAL_SANCTIONS_PROGRAM_(PER_PROGRAM)] NVARCHAR({column_lengths['UK_FINANCIAL_SANCTIONS_PROGRAM_(PER_PROGRAM)']})
-        )
-    """
-    ConnectToDb.execute_sql_command(create_table_command)
-    print("New table created successfully.")
+        # Create a new table in the database
+        logging.info("Creating new table...")
+        create_table_command = f"""
+            CREATE TABLE {new_table_name} (
+                [COUNTRY_NAME_ENG] NVARCHAR({column_lengths['COUNTRY_NAME_ENG']}),
+                [COUNTRY_NAME_FR] NVARCHAR({column_lengths['COUNTRY_NAME_FR']}),
+                [COUNTRY_CODE_ISO_2] NVARCHAR({column_lengths['COUNTRY_CODE_ISO_2']}),
+                [COUNTRY_CODE_ISO_3] NVARCHAR({column_lengths['COUNTRY_CODE_ISO_3']}),
+                [CPI_SCORE] INT,
+                [CPI_RANK] INT,
+                [FR_ASSET_FREEEZE] NVARCHAR({column_lengths['FR_ASSET_FREEEZE']}),
+                [FR_SECTORAL_EMBARGO] NVARCHAR({column_lengths['FR_SECTORAL_EMBARGO']}),
+                [FR_MILITARY_EMBARGO] NVARCHAR({column_lengths['FR_MILITARY_EMBARGO']}),
+                [FR_INTERNAL_REPRESSION_EQUIPMENT] NVARCHAR({column_lengths['FR_INTERNAL_REPRESSION_EQUIPMENT']}),
+                [FR_INTERNAL_REPRESSION] NVARCHAR({column_lengths['FR_INTERNAL_REPRESSION']}),
+                [FR_SECTORAL_RESTRICTIONS] NVARCHAR({column_lengths['FR_SECTORAL_RESTRICTIONS']}),
+                [FR_FINANCIAL_RESTRICTIONS] NVARCHAR({column_lengths['FR_FINANCIAL_RESTRICTIONS']}),
+                [FR_TRAVEL_BANS] NVARCHAR({column_lengths['FR_TRAVEL_BANS']}),
+                [EU_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE] NVARCHAR({column_lengths['EU_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE']}),
+                [EU_INVESTMENTS] NVARCHAR({column_lengths['EU_INVESTMENTS']}),
+                [EU_FINANCIAL_MEASURES] NVARCHAR({column_lengths['EU_FINANCIAL_MEASURES']}),
+                [EU_AML_HIGH_RISK_COUNTRIES] NVARCHAR({column_lengths['EU_AML_HIGH_RISK_COUNTRIES']}),
+                [US_OFAC_SANCTIONS] NVARCHAR({column_lengths['US_OFAC_SANCTIONS']}),
+                [FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] NVARCHAR({column_lengths['FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION']}),
+                [FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING] NVARCHAR({column_lengths['FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING']}),
+                [EU_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] NVARCHAR({column_lengths['EU_LIST_OF_NON_COOPERATIVE_JURISDICTIONS']}),
+                [FR_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] NVARCHAR({column_lengths['FR_LIST_OF_NON_COOPERATIVE_JURISDICTIONS']}),
+                [UK_FINANCIAL_SANCTIONS] NVARCHAR({column_lengths['UK_FINANCIAL_SANCTIONS']}),
+                [LEVEL_OF_RISK] AS (
+                    CASE
+                            WHEN ([FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'YES' OR [COUNTRY_NAME_ENG] = 'CUBA') THEN 'PROHIBITED'
+                            WHEN ([EU_AML_HIGH_RISK_COUNTRIES] = 'YES' OR 
+                                  [FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'YES' OR 
+                                  [EU_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] = 'YES' OR 
+                                  [FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'YES' OR 
+                                  [FR_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] = 'YES') 
+                                 AND [FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'NO' THEN 'HIGH RISK OR PROHIBITED'
+                            WHEN ([FR_SECTORAL_EMBARGO] = 'YES' OR 
+                                  [FR_MILITARY_EMBARGO] = 'YES' OR 
+                                  [FR_INTERNAL_REPRESSION_EQUIPMENT] = 'YES' OR 
+                                  [FR_INTERNAL_REPRESSION] = 'YES' OR 
+                                  [FR_SECTORAL_RESTRICTIONS] = 'YES' OR 
+                                  [FR_FINANCIAL_RESTRICTIONS] = 'YES' OR
+                                  [FR_TRAVEL_BANS] = 'YES' OR 
+                                  [EU_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE] = 'YES' OR 
+                                  [EU_INVESTMENTS] = 'YES' OR 
+                                  [FR_ASSET_FREEEZE] = 'YES' OR 
+                                  [EU_FINANCIAL_MEASURES] = 'YES' OR 
+                                  [US_OFAC_SANCTIONS] = 'YES') 
+                                 AND [EU_AML_HIGH_RISK_COUNTRIES] = 'NO' 
+                                 AND [FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'NO' 
+                                 AND [EU_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] = 'NO' 
+                                 AND [FR_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] = 'NO' 
+                                 AND [UK_FINANCIAL_SANCTIONS] = 'NO' THEN 'HIGH RISK'
+                            WHEN [CPI_SCORE] >= 50 THEN 'LOW RISK'
+                    ELSE 'MEDIUM RISK'
+                    END
+                ),
+                [LEVEL_OF_VIGILANCE] AS (
+                    CASE
+                            WHEN ([FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'YES' OR [COUNTRY_NAME_ENG] = 'CUBA') THEN 'PROHIBITED'
+                            WHEN ([EU_AML_HIGH_RISK_COUNTRIES] = 'YES' OR 
+                                  [FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'YES' OR 
+                                  [EU_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] = 'YES' OR 
+                                  [FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'YES' OR 
+                                  [FR_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] = 'YES') 
+                                 AND [FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'NO' THEN 'ENHANCED VIGILANCE OR PROHIBITED'
+                            WHEN ([FR_SECTORAL_EMBARGO] = 'YES' OR 
+                                  [FR_MILITARY_EMBARGO] = 'YES' OR 
+                                  [FR_INTERNAL_REPRESSION_EQUIPMENT] = 'YES' OR 
+                                  [FR_INTERNAL_REPRESSION] = 'YES' OR 
+                                  [FR_SECTORAL_RESTRICTIONS] = 'YES' OR 
+                                  [FR_FINANCIAL_RESTRICTIONS] = 'YES' OR
+                                  [FR_TRAVEL_BANS] = 'YES' OR 
+                                  [EU_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE] = 'YES' OR 
+                                  [EU_INVESTMENTS] = 'YES' OR 
+                                  [FR_ASSET_FREEEZE] = 'YES' OR 
+                                  [EU_FINANCIAL_MEASURES] = 'YES' OR 
+                                  [US_OFAC_SANCTIONS] = 'YES') 
+                                 AND [EU_AML_HIGH_RISK_COUNTRIES] = 'NO' 
+                                 AND [FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'NO' 
+                                 AND [EU_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] = 'NO' 
+                                 AND [FR_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] = 'NO' 
+                                 AND [UK_FINANCIAL_SANCTIONS] = 'NO' THEN 'ENHANCED VIGILANCE'
+                            WHEN [CPI_SCORE] >= 50 THEN 'STANDARD VIGILANCE'
+                            ELSE 'ENHANCED VIGILANCE'
+                    END
+                ),
+                [LIST] AS (
+                    CASE
+                        WHEN ([FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'YES' OR [COUNTRY_NAME_ENG] = 'CUBA') THEN 'BLACK'
+                        WHEN ([EU_AML_HIGH_RISK_COUNTRIES] = 'YES' OR 
+                              [FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'YES' OR 
+                              [EU_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] = 'YES' OR 
+                              [FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'YES' OR 
+                              [FR_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] = 'YES') 
+                             AND [FATF_HIGH_RISK_JURISDICTIONS_SUBJECT_TO_A_CALL_FOR_ACTION] = 'NO' THEN 'GREY'
+                        WHEN ([FR_SECTORAL_EMBARGO] = 'YES' OR 
+                              [FR_MILITARY_EMBARGO] = 'YES' OR 
+                              [FR_INTERNAL_REPRESSION_EQUIPMENT] = 'YES' OR 
+                              [FR_INTERNAL_REPRESSION] = 'YES' OR 
+                              [FR_SECTORAL_RESTRICTIONS] = 'YES' OR 
+                              [FR_FINANCIAL_RESTRICTIONS] = 'YES' OR
+                              [FR_TRAVEL_BANS] = 'YES' OR 
+                              [EU_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE] = 'YES' OR 
+                              [EU_INVESTMENTS] = 'YES' OR 
+                              [FR_ASSET_FREEEZE] = 'YES' OR 
+                              [EU_FINANCIAL_MEASURES] = 'YES' OR 
+                              [US_OFAC_SANCTIONS] = 'YES') 
+                             AND [EU_AML_HIGH_RISK_COUNTRIES] = 'NO' 
+                             AND [FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'NO' 
+                             AND [EU_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] = 'NO' 
+                             AND [FR_LIST_OF_NON_COOPERATIVE_JURISDICTIONS] = 'NO' 
+                             AND [UK_FINANCIAL_SANCTIONS] = 'NO' THEN 'RED'
+                        WHEN [CPI_SCORE] >= 50 THEN 'GREEN'
+                        ELSE 'AMBER'
+                    END
+                ),
+            )
+        """
+        db.execute_sql_command(create_table_command)
 
-    print("Inserting data into the new table...")
-    ConnectToDb.insert_data_to_sql(df, new_table_name)
-    print("Data inserted successfully.")
+        # Insert data into the new table
+        logging.info("Inserting data into the new table...")
+        db.insert_data_to_sql(df, new_table_name)
 
-    print("Applying SQL logic with additional logic...")
-    ConnectToDb.update_sql_logic()
-    print("SQL logic applied successfully.")
+        # Create an audit table for logging changes
+        logging.info("Creating audit table if it doesn't exist...")
+        db.create_audit_table()
 
-    print("Retrieving and displaying updated table content:")
-    updated_df = print_table_content_as_dataframe(new_table_name)
-    print(updated_df)
-
-    # Export the updated DataFrame to Excel in the root folder
-    output_path = 'updated_table.xlsx'
-    updated_df.to_excel(output_path, index=False)
-    print(f"Updated table exported to {output_path}")
-
-    # Assuming some updates are done to the DataFrame (df)
-    # Here you would include any logic to update the DataFrame as needed
-    # For example, let's just update a column value for demonstration purposes
-    df['CPI_SCORE'] = df['CPI_SCORE'].apply(lambda x: x + 1 if pd.notnull(x) else x)
-
-    # Update the spreadsheet with new data
-    print("Updating the spreadsheet with new data...")
-    update_spreadsheet(df, workbook, sheet, df)
-    print("Spreadsheet updated successfully.")
+    else:
+        logging.error("DataFrame is None. Unable to proceed with database operations.")
 
 if __name__ == "__main__":
     main()

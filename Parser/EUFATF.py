@@ -1,14 +1,23 @@
-import os
-import re
+"""
+This script is used to parse the EU FATF website and update the database with the high-risk countries.
+It also checks for changes in the database and logs the changes.
+"""
+
+# Importing required libraries
 import requests
 from bs4 import BeautifulSoup
 from unidecode import unidecode
 import pyodbc
 import logging
+from Sanctions_system.Logic.ComputedLogic import get_sanctions_map_columns_sql
 
+# Setting up the logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Defining the EUFATFUpdater class
 class EUFATFUpdater:
+
+    # Constructor to initialize the database name, connection string, updates, and changes
     def __init__(self, db_name):
         self.db_name = db_name
         self.conn_str = (
@@ -21,6 +30,14 @@ class EUFATFUpdater:
         self.updates = []
         self.changes = []
 
+    # Method to normalize the country name
+    def normalize_country_name(self, country_name):
+        # Normalize country name by removing extra spaces, handling smart quotes, and applying unidecode
+        country_name = unidecode(country_name.strip().upper())
+        country_name = country_name.replace('’', "'")  # Replace smart quotes with standard quotes
+        return country_name
+
+    # Method to parse the HTML content of the EU FATF website
     def parse_html(self, url):
         response = requests.get(url)
         if response.status_code == 200:
@@ -34,74 +51,164 @@ class EUFATFUpdater:
                 for row in rows:
                     cols = row.find_all('td')
                     if cols:
-                        country_name = cols[0].text.strip().upper()
+                        country_name = self.normalize_country_name(cols[0].text.strip().upper())
                         # Mapping countries with specific names
                         if country_name == 'MYANMAR':
                             country_name = 'MYANMAR (BURMA)'
                         elif country_name == 'NORTH KOREA':
-                            country_name = 'DEMOCRATIC PEOPLE\'S REPUBLIC OF KOREA (DPRK - NORTH KOREA)'
-                        countries.append(unidecode(country_name))
+                            country_name = "DEMOCRATIC PEOPLE'S REPUBLIC OF KOREA (DPRK - NORTH KOREA)"
+                        countries.append(country_name)
 
             return countries
         return None
 
+    # Method to update the database with the EU FATF data
     def update_database_EUFATF(self, updates):
         try:
-            cnx = pyodbc.connect(self.conn_str)
-            cursor = cnx.cursor()
+            with pyodbc.connect(self.conn_str) as cnx:
+                with cnx.cursor() as cursor:
 
-            # Ensure column can store the values properly
-            cursor.execute("""
-                ALTER TABLE TblCountries_New
-                ALTER COLUMN [EU_-_AML_HIGH-RISK_COUNTRIES] NVARCHAR(50)
-            """)
-            cnx.commit()
+                    # Track the countries before updating
+                    changes_yes_to_no = []
+                    changes_no_to_yes = []
 
-            # Set all countries to "NO" initially
-            cursor.execute("UPDATE TblCountries_New SET [EU_-_AML_HIGH-RISK_COUNTRIES] = 'NO'")
-            cnx.commit()
+                    # Drop dependent computed columns (if necessary)
+                    logging.info("Dropping computed columns if they exist...")
+                    cursor.execute("""
+                        IF EXISTS (SELECT 1 
+                                   FROM sys.columns 
+                                   WHERE name IN ('LEVEL_OF_RISK', 'LEVEL_OF_VIGILANCE', 'LIST') 
+                                   AND object_id = OBJECT_ID('TblSanctionsMap'))
+                        BEGIN
+                            ALTER TABLE TblSanctionsMap 
+                            DROP COLUMN LEVEL_OF_RISK, LEVEL_OF_VIGILANCE, LIST;
+                        END
+                    """)
+                    cnx.commit()
 
-            # Update only the high-risk countries to "YES"
-            for country_name, high_risk_status in updates:
-                update_query = f"""
-                    UPDATE TblCountries_New
-                    SET [EU_-_AML_HIGH-RISK_COUNTRIES] = ?
-                    WHERE [COUNTRY_NAME_(ENG)] = ?
-                """
-                cursor.execute(update_query, high_risk_status, country_name)
-                logging.info(f"Updated {country_name} to {high_risk_status}")
+                    # Alter the column (if necessary)
+                    logging.info("Altering column [EU_AML_HIGH_RISK_COUNTRIES]...")
+                    cursor.execute("""
+                        ALTER TABLE TblSanctionsMap
+                        ALTER COLUMN [EU_AML_HIGH_RISK_COUNTRIES] VARCHAR(3)
+                    """)
+                    cnx.commit()
 
-            cnx.commit()
-            cursor.close()
-            cnx.close()
+                    # Step 1: Track the current state of all countries before the update
+                    logging.info("Fetching current country statuses...")
+                    cursor.execute("SELECT [COUNTRY_NAME_ENG], [EU_AML_HIGH_RISK_COUNTRIES] FROM TblSanctionsMap")
+                    country_status_before = {row[0]: row[1] for row in cursor.fetchall()}
+
+                    # Step 2: Update the countries with high-risk status to 'YES'
+                    logging.info("Updating high-risk countries to 'YES'...")
+                    if updates:
+                        country_names_yes = [self.normalize_country_name(country) for country, status in updates if
+                                             status == 'YES']
+
+                        if country_names_yes:
+                            placeholders = ', '.join('?' for _ in country_names_yes)
+                            update_yes_query = f"""
+                                UPDATE TblSanctionsMap
+                                SET [EU_AML_HIGH_RISK_COUNTRIES] = 'YES'
+                                WHERE REPLACE([COUNTRY_NAME_ENG], '’', '''') IN ({placeholders})
+                            """
+                            cursor.execute(update_yes_query, country_names_yes)
+                            logging.info(f"Set countries to 'YES': {country_names_yes}")
+                        cnx.commit()
+
+                    # Step 3: Set the remaining countries to 'NO'
+                    logging.info("Setting remaining countries to 'NO'...")
+                    if country_names_yes:
+                        placeholders = ', '.join('?' for _ in country_names_yes)
+                        update_no_query = f"""
+                            UPDATE TblSanctionsMap
+                            SET [EU_AML_HIGH_RISK_COUNTRIES] = 'NO'
+                            WHERE REPLACE([COUNTRY_NAME_ENG], '’', '''') NOT IN ({placeholders})
+                        """
+                        cursor.execute(update_no_query, country_names_yes)
+                        logging.info("Set remaining countries to 'NO'.")
+                    else:
+                        # If there are no 'YES' countries, set all countries to 'NO'
+                        logging.info("No countries to set to 'YES', setting all to 'NO'.")
+                        cursor.execute("""
+                            UPDATE TblSanctionsMap
+                            SET [EU_AML_HIGH_RISK_COUNTRIES] = 'NO'
+                        """)
+                    cnx.commit()
+
+                    # Step 4: Compare the new state and track changes
+                    logging.info("Fetching updated country statuses...")
+                    cursor.execute("SELECT [COUNTRY_NAME_ENG], [EU_AML_HIGH_RISK_COUNTRIES] FROM TblSanctionsMap")
+                    country_status_after = {row[0]: row[1] for row in cursor.fetchall()}
+
+                    for country, old_status in country_status_before.items():
+                        new_status = country_status_after.get(country)
+                        if old_status == 'YES' and new_status == 'NO':
+                            changes_yes_to_no.append(country)
+                        elif old_status == 'NO' and new_status == 'YES':
+                            changes_no_to_yes.append(country)
+
+                    # Step 5: Log the changes
+                    if changes_yes_to_no:
+                        logging.info("Countries switched from YES to NO:")
+                        for country in changes_yes_to_no:
+                            logging.info(f"Country: {country} switched from YES to NO")
+
+                    if changes_no_to_yes:
+                        logging.info("Countries switched from NO to YES:")
+                        for country in changes_no_to_yes:
+                            logging.info(f"Country: {country} switched from NO to YES")
+
+                    # Step 6: Recreate the computed columns (if necessary)
+                    logging.info("Recreating computed columns...")
+                    cursor.execute(get_sanctions_map_columns_sql())
+                    cnx.commit()
+                    logging.info("Computed columns recreated successfully.")
+
+                logging.info("EU FATF database updated successfully.")
+
+        except pyodbc.Error as e:
+            logging.error(f"Database error during EU FATF updates: {e}")
         except Exception as e:
-            logging.error(f"Error updating SQL database: {e}")
+            logging.error(f"General error during EU FATF updates: {e}")
 
+    # Method to check for changes in the database
     def check_database_changes_EUFATF(self, updates):
         changes = []
         try:
-            cnx = pyodbc.connect(self.conn_str)
-            cursor = cnx.cursor()
-            for country_name, new_high_risk_status in updates:
-                cursor.execute(
-                    "SELECT [EU_-_AML_HIGH-RISK_COUNTRIES] FROM TblCountries_New WHERE [COUNTRY_NAME_(ENG)] = ?",
-                    country_name)
-                result = cursor.fetchone()
-                if result:
-                    old_high_risk_status = result[0] if result[0] is not None else 'NO'
-                    if old_high_risk_status != new_high_risk_status:
-                        changes.append((country_name, old_high_risk_status, new_high_risk_status))
-                        if new_high_risk_status.upper() == 'YES':
-                            logging.info(
-                                f"Country: {country_name}, Old Status: {old_high_risk_status}, New Status: {new_high_risk_status}")
-            cursor.close()
-            cnx.close()
-        except Exception as e:
+            with pyodbc.connect(self.conn_str) as cnx:
+                with cnx.cursor() as cursor:
+                    logging.info("Checking for database changes...")
+                    for country_name, new_high_risk_status in updates:
+                        normalized_country_name = self.normalize_country_name(country_name)
+                        cursor.execute("""
+                            SELECT [EU_AML_HIGH_RISK_COUNTRIES] 
+                            FROM TblSanctionsMap 
+                            WHERE REPLACE([COUNTRY_NAME_ENG], '’', '''') = ?
+                        """, normalized_country_name)
+                        result = cursor.fetchone()
+
+                        if result:
+                            old_high_risk_status = result[0] if result[0] is not None else 'NO'
+                            if old_high_risk_status != new_high_risk_status:
+                                changes.append((normalized_country_name, old_high_risk_status, new_high_risk_status))
+                                logging.info(
+                                    f"Country: {normalized_country_name}, Old Status: {old_high_risk_status}, New Status: {new_high_risk_status}"
+                                )
+            logging.info("Database changes check completed.")
+        except pyodbc.Error as e:
             logging.error(f"Error checking database changes: {e}")
+        except Exception as e:
+            logging.error(f"General error checking database changes: {e}")
+
         return changes
 
 def main():
+
+    # Define the database name and the URL of the EU FATF website
     db_name = 'AXIOM_PARIS_TEST_CYRILLE'
+
+    # URL of the EU FATF website
     html_url = 'https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en'
 
     updater = EUFATFUpdater(db_name)

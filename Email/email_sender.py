@@ -2,7 +2,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-def send_email(subject, body, to_emails, from_email='karim.djenadi@axiom-ai.com', password='Tennis1990!'):
+def send_email(subject, body, to_emails, from_email='karim.djenadi@axiom-ai.com', password='Lydia1998!'):
     # Create the email
     msg = MIMEMultipart()
     msg['From'] = from_email

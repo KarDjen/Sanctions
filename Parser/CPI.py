@@ -1,4 +1,10 @@
-import os
+"""
+This script fetches the Corruption Perceptions Index (CPI) data from the Transparency International website.
+It then compares the fetched data with the existing data in the SQL database and updates the database with the new data.
+The script also checks for any changes in the data and logs them.
+"""
+
+# Importing required libraries
 import re
 import requests
 from bs4 import BeautifulSoup
@@ -7,9 +13,13 @@ import pyodbc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
+# Setting up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Class to update the Corruption Perceptions Index (CPI) data in the SQL database
 class CPIUpdater:
+
+    # Constructor to initialize the database name and connection string
     def __init__(self, db_name):
         self.db_name = db_name
         self.conn_str = (
@@ -22,25 +32,35 @@ class CPIUpdater:
         self.updates = []
         self.changes = []
 
+    # Method to normalize the country name
+    def normalize_country_name(self, country_name):
+        # Normalize country name by removing extra spaces, handling quotes, and using unidecode
+        country_name = unidecode(country_name.strip().upper())
+        country_name = country_name.replace('’', "'")  # Replace smart quotes with standard quotes
+        return country_name
+
+    # Method to get the list of countries from the database
     def get_countries_from_database(self):
         countries = []
         try:
             cnx = pyodbc.connect(self.conn_str)
             cursor = cnx.cursor()
-            cursor.execute("SELECT [COUNTRY_NAME_(ENG)] FROM TblCountries_New")
+            cursor.execute("SELECT [COUNTRY_NAME_ENG] FROM TblSanctionsMap")
             for row in cursor.fetchall():
-                countries.append(unidecode(row[0].strip().upper()))
+                # Normalize the country names before adding them to the list
+                countries.append(self.normalize_country_name(row[0]))
             cursor.close()
             cnx.close()
         except Exception as e:
             logging.error(f"Error fetching countries from database: {e}")
         return countries
 
+    # Method to get the current data from the database
     def get_current_data_from_database(self, country_name):
         try:
             cnx = pyodbc.connect(self.conn_str)
             cursor = cnx.cursor()
-            cursor.execute("SELECT [CPI_SCORE], [CPI_RANK] FROM TblCountries_New WHERE [COUNTRY_NAME_(ENG)] = ?", country_name)
+            cursor.execute("SELECT [CPI_SCORE], [CPI_RANK] FROM TblSanctionsMap WHERE [COUNTRY_NAME_ENG] = ?", country_name)
             row = cursor.fetchone()
             cursor.close()
             cnx.close()
@@ -52,11 +72,14 @@ class CPIUpdater:
             logging.error(f"Error fetching current data from database: {e}")
             return None, None
 
+    # Method to format the country name for URL use
     def format_country_name(self, country_name):
+        # Format the country name for URL use
         country_name = re.sub(r'\(.*?\)', '', country_name).strip()
         formatted_country_name = unidecode(country_name.lower().replace(' ', '-'))
         return formatted_country_name
 
+    # Method to check if the value is a valid number
     def is_valid_number(self, value):
         try:
             float(value)
@@ -64,9 +87,10 @@ class CPIUpdater:
         except ValueError:
             return False
 
+    # Method to parse the country details from the Transparency International website
     def parse_country_details(self, country_name):
         formatted_country_name = self.format_country_name(country_name)
-        url = f'https://www.transparency.org/en/countries/{formatted_country_name}'
+        url = f'https://www.transparency.org/en/countries/{formatted_country_name}' # URL for the country's page on Transparency International website
         response = requests.get(url)
 
         if response.status_code == 404:
@@ -88,6 +112,7 @@ class CPIUpdater:
 
         return score, rank
 
+    # Method to fetch and compare the country details
     def fetch_and_compare_country_details(self, country_name):
         score, rank = self.parse_country_details(country_name)
         if score == 'N/A':
@@ -109,6 +134,7 @@ class CPIUpdater:
 
         return (country_name, score, rank)
 
+    # Method to update the database with the new CPI data
     def update_database_CPI(self, countries):
         updates = []
         try:
@@ -127,12 +153,14 @@ class CPIUpdater:
             for update in updates:
                 country_name, score, rank = update
                 update_query = """
-                    UPDATE TblCountries_New
+                    UPDATE TblSanctionsMap
                     SET [CPI_SCORE] = ?, [CPI_RANK] = ?
-                    WHERE [COUNTRY_NAME_(ENG)] = ?
+                    WHERE [COUNTRY_NAME_ENG] = ?
                 """
-                cursor.execute(update_query, score, rank, country_name)
-                logging.info(f"Updated {country_name} with CPI Score: {score}, Rank: {rank}")
+                # Normalize the country name before executing the update
+                normalized_country_name = self.normalize_country_name(country_name)
+                cursor.execute(update_query, score, rank, normalized_country_name)
+                logging.info(f"Updated {normalized_country_name} with CPI Score: {score}, Rank: {rank}")
 
             cnx.commit()
             cursor.close()
@@ -144,13 +172,14 @@ class CPIUpdater:
         self.updates = updates
         return updates
 
+    # Method to check for changes in the database
     def check_database_changes_CPI(self, updates):
         changes = []
         try:
             cnx = pyodbc.connect(self.conn_str)
             cursor = cnx.cursor()
             for country_name, new_score, new_rank in updates:
-                cursor.execute("SELECT [CPI_SCORE], [CPI_RANK] FROM TblCountries_New WHERE [COUNTRY_NAME_(ENG)] = ?",
+                cursor.execute("SELECT [CPI_SCORE], [CPI_RANK] FROM TblSanctionsMap WHERE [COUNTRY_NAME_ENG] = ?",
                                country_name)
                 result = cursor.fetchone()
                 if result:
@@ -167,16 +196,16 @@ class CPIUpdater:
             logging.error(f"Error checking database changes: {e}")
         return changes
 
+    # Method to collect the updates
     def collect_updates(self):
         return self.updates
 
-    def collect_changes(self):
-        return self.changes
-
 
 def main():
+    # Database name
     db_name = 'AXIOM_PARIS_TEST_CYRILLE'
 
+    # Initialize the CPIUpdater object
     updater = CPIUpdater(db_name)
 
     # Fetch countries from the database
@@ -196,10 +225,6 @@ def main():
     logging.info("\nCollected Updates:")
     for update in updates:
         logging.info(update)
-
-    logging.info("\nCollected Changes:")
-    for change in changes:
-        logging.info(change)
 
 
 if __name__ == "__main__":

@@ -1,15 +1,24 @@
-import os
+"""
+This script is used to update the FATF IM data in the database. It scrapes the FATF website for the latest sanctions data.
+It then updates the database with the new data and checks for any changes. The changes are logged for auditing purposes.
+"""
+
+#
 import requests
 from bs4 import BeautifulSoup
 from unidecode import unidecode
 import pyodbc
 import logging
 from datetime import datetime
+from Sanctions_system.Logic.ComputedLogic import get_sanctions_map_columns_sql
 
+#
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-
+# This class is used to update the FATF IM data in the database
 class FATFIMUpdater:
+
+    # Initialize the updater with the database name and connection string
     def __init__(self, db_name):
         self.db_name = db_name
         self.conn_str = (
@@ -22,10 +31,10 @@ class FATFIMUpdater:
         self.updates = []
         self.changes = []
 
+    # Build the URL for the latest FATF IM page
     def build_url(self):
-        base_url = 'https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-{}.html'
-        months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october',
-                  'november', 'december']
+        base_url = 'https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-{}.html' # URL template for FATF IM pages
+        months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'] # List of months
         current_year = datetime.now().year
 
         for year in range(current_year, 2027):
@@ -37,6 +46,12 @@ class FATFIMUpdater:
                     return url
         return None
 
+    # Normalize the country name for consistency
+    def normalize_country_name(self, name):
+        # Normalize country name by converting to uppercase and replacing smart quotes and apostrophes
+        return unidecode(name.strip().upper().replace('’', "'"))
+
+    # Parse the HTML content to extract the high-risk countries
     def parse_html(self, url):
         response = requests.get(url)
         if response.status_code == 200:
@@ -52,9 +67,9 @@ class FATFIMUpdater:
                 return None
 
             countries_text = countries_div.get_text()
-            countries_list = [unidecode(country.strip().upper()) for country in countries_text.split(', ')]
+            countries_list = [self.normalize_country_name(country) for country in countries_text.split(', ')]
 
-            # Mapping countries with specific names
+            # Country mapping for consistency with the database
             country_mapping = {
                 'MYANMAR (BURMA)': 'MYANMAR',
                 'DEMOCRATIC PEOPLE\'S REPUBLIC OF KOREA (DPRK - NORTH KOREA)': 'NORTH KOREA',
@@ -74,53 +89,107 @@ class FATFIMUpdater:
             return mapped_countries
         return None
 
+
+    # Update the database with the FATF IM data
     def update_database_FATF_IM(self, high_risk_countries):
         try:
-            cnx = pyodbc.connect(self.conn_str)
-            cursor = cnx.cursor()
+            # Establish connection to the database
+            with pyodbc.connect(self.conn_str) as cnx:
+                with cnx.cursor() as cursor:
 
-            # Ensure column can store the values properly
-            cursor.execute("""
-                ALTER TABLE TblCountries_New
-                ALTER COLUMN [FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING] NVARCHAR(50)
-            """)
-            cnx.commit()
+                    # Step 1: Drop dependent computed columns
+                    logging.info("Dropping dependent computed columns...")
+                    cursor.execute("""
+                        IF EXISTS (SELECT 1 
+                                   FROM sys.columns 
+                                   WHERE name IN ('LEVEL_OF_RISK', 'LEVEL_OF_VIGILANCE', 'LIST') 
+                                   AND object_id = OBJECT_ID('TblSanctionsMap'))
+                        BEGIN
+                            ALTER TABLE TblSanctionsMap 
+                            DROP COLUMN LEVEL_OF_RISK, LEVEL_OF_VIGILANCE, LIST;
+                        END
+                    """)
+                    cnx.commit()
+                    logging.info("Dropped computed columns successfully.")
 
-            # Set all countries to "NO" initially
-            cursor.execute("UPDATE TblCountries_New SET [FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'NO'")
-            cnx.commit()
+                    # Step 2: Ensure the column structure is correct for FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING
+                    logging.info(
+                        "Ensuring column structure for FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING is correct...")
+                    cursor.execute("""
+                        ALTER TABLE TblSanctionsMap
+                        ALTER COLUMN [FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING] NVARCHAR(50)
+                    """)
+                    cnx.commit()
+                    logging.info("Column structure updated successfully.")
 
-            for country_name in high_risk_countries:
-                status = 'YES'
-                update_query = """
-                    UPDATE TblCountries_New
-                    SET [FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING] = ?
-                    WHERE [COUNTRY_NAME_(ENG)] = ?
-                """
-                cursor.execute(update_query, status, country_name)
-                logging.info(f"Updated {country_name} to {status}")
+                    # Step 3: Bulk update specified high-risk countries to 'YES'
+                    if high_risk_countries:
+                        # Normalize country names
+                        normalized_country_names = [self.normalize_country_name(country) for country in
+                                                    high_risk_countries]
 
-            cnx.commit()
-            cursor.close()
-            cnx.close()
+                        # Process the updates in batches
+                        batch_size = 500
+                        logging.info(
+                            f"Processing {len(normalized_country_names)} countries in batches of {batch_size}...")
+
+                        for i in range(0, len(normalized_country_names), batch_size):
+                            batch = normalized_country_names[i:i + batch_size]
+                            placeholders = ', '.join(['?'] * len(batch))
+
+                            # Update the countries in the list to 'YES'
+                            update_yes_query = f"""
+                                UPDATE TblSanctionsMap
+                                SET [FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'YES'
+                                WHERE REPLACE([COUNTRY_NAME_ENG], '’', '''') IN ({placeholders})
+                            """
+                            cursor.execute(update_yes_query, tuple(batch))
+                            logging.info(
+                                f"Updated {len(batch)} countries to 'YES' for FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING.")
+                            cnx.commit()
+
+                        # Step 4: Set remaining countries that are NOT in the parsed list to 'NO'
+                        logging.info("Updating countries that are NOT in the high-risk list to 'NO'...")
+                        if normalized_country_names:
+                            placeholders = ', '.join(['?'] * len(normalized_country_names))
+                            update_no_query = f"""
+                                UPDATE TblSanctionsMap
+                                SET [FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING] = 'NO'
+                                WHERE REPLACE([COUNTRY_NAME_ENG], '’', '''') NOT IN ({placeholders})
+                            """
+                            cursor.execute(update_no_query, tuple(normalized_country_names))
+                            logging.info(
+                                "Set remaining countries to 'NO' for FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING.")
+                            cnx.commit()
+
+                    # Step 5: Recreate the computed columns
+                    logging.info("Recreating computed columns...")
+                    cursor.execute(get_sanctions_map_columns_sql())
+                    cnx.commit()
+                    logging.info("Recreated computed columns successfully.")
+
+        except pyodbc.Error as e:
+            logging.error(f"Database error during FATF IM updates: {e}")
         except Exception as e:
-            logging.error(f"Error updating SQL database: {e}")
+            logging.error(f"General error during FATF IM updates: {e}")
 
+    # Check for changes in the database
     def check_database_changes_FATF_IM(self, updates):
         changes = []
         try:
             cnx = pyodbc.connect(self.conn_str)
             cursor = cnx.cursor()
             for country_name, new_status in updates:
+                normalized_country_name = self.normalize_country_name(country_name)
                 cursor.execute(
-                    "SELECT [FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING] FROM TblCountries_New WHERE [COUNTRY_NAME_(ENG)] = ?",
-                    country_name)
+                    "SELECT [FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING] FROM TblSanctionsMap WHERE REPLACE([COUNTRY_NAME_ENG], '’', '''') = ?",
+                    normalized_country_name)
                 result = cursor.fetchone()
                 if result:
                     old_status = result[0] if result[0] is not None else 'NO'
                     if old_status != new_status:
                         changes.append(
-                            (country_name, 'FATF_-_JURISDICTIONS_UNDER_INCREASED_MONITORING', old_status, new_status))
+                            (country_name, 'FATF_JURISDICTIONS_UNDER_INCREASED_MONITORING', old_status, new_status))
                         if new_status.upper() == 'YES':
                             logging.info(f"Country: {country_name}, Old Status: {old_status}, New Status: {new_status}")
             cursor.close()
@@ -131,12 +200,19 @@ class FATFIMUpdater:
 
 
 def main():
+
+    # Initialize the FATF IM updater
     db_name = 'AXIOM_PARIS_TEST_CYRILLE'
+
+    # Create an instance of the FATF IM updater
     updater = FATFIMUpdater(db_name)
 
     # Build URL for the latest available increased monitoring page
     url = updater.build_url()
+
+    # Check if a valid URL was found
     if url:
+
         # Parse the HTML to get the high-risk countries
         high_risk_countries = updater.parse_html(url)
         if high_risk_countries:

@@ -1,12 +1,14 @@
-import os
 import requests
 import csv
 from unidecode import unidecode
 import pyodbc
+import logging
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
-import logging
+import re
+from Sanctions_system.Logic.ComputedLogic import get_sanctions_map_columns_sql
 
+# Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class OFACUpdater:
@@ -19,107 +21,142 @@ class OFACUpdater:
             f'UID=sa;'
             f'PWD=Ax10mPar1$'
         )
-        self.updates = []
-        self.changes = []
+
+    def normalize_country_name(self, name):
+        normalized_name = unidecode(name.strip().upper().replace(' ', ''))
+        return self.map_special_countries(normalized_name)
+
+    def map_special_countries(self, name):
+        # Add specific mappings for country names
+        country_mappings = {
+            "DPRK": "DEMOCRATIC PEOPLE'S REPUBLIC OF KOREA (DPRK - NORTH KOREA)",
+            "BURMA": "MYANMAR (BURMA)"
+        }
+        return country_mappings.get(name, name)
 
     def parse_csv(self, url):
         session = requests.Session()
-        retry = Retry(
-            total=5,
-            read=5,
-            connect=5,
-            backoff_factor=0.3,
-            status_forcelist=(500, 502, 504),
-        )
+        retry = Retry(total=5, read=5, connect=5, backoff_factor=0.3, status_forcelist=(500, 502, 504))
         adapter = HTTPAdapter(max_retries=retry)
         session.mount('http://', adapter)
         session.mount('https://', adapter)
 
-        response = session.get(url)
-        response.raise_for_status()
-        decoded_content = response.content.decode('utf-8')
-        csv_reader = csv.reader(decoded_content.splitlines(), delimiter=',')
-        next(csv_reader)  # Skip header row
-        countries = set()
+        try:
+            response = session.get(url)
+            response.raise_for_status()
+            decoded_content = response.content.decode('utf-8')
+            csv_reader = csv.reader(decoded_content.splitlines(), delimiter=',')
+            next(csv_reader)  # Skip header row
+            countries = set()
 
-        for row in csv_reader:
-            if len(row) > 11:
-                cell_content = row[11].strip().upper()
-                if cell_content:
-                    words = cell_content.split()
-                    for word in words:
-                        countries.add(unidecode(word))
+            for row in csv_reader:
+                if len(row) > 11:
+                    cell_content = row[11].strip().upper()
+                    if cell_content:
+                        country_names = re.split(r'[;\s]\s*', cell_content)
+                        for name in country_names:
+                            normalized_country = self.normalize_country_name(name)
+                            if normalized_country:
+                                countries.add(normalized_country)
 
-        return countries
+            return countries
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error fetching CSV file from {url}: {e}")
+            return None
 
     def collect_updates(self, csv_url):
         return self.parse_csv(csv_url)
 
     def update_database_OFAC(self, csv_countries):
         try:
-            cnx = pyodbc.connect(self.conn_str)
-            cursor = cnx.cursor()
+            # Connect to the database
+            with pyodbc.connect(self.conn_str) as cnx:
+                with cnx.cursor() as cursor:
+                    # Drop dependent computed columns before modifying the data
+                    logging.info("Dropping dependent computed columns (LEVEL_OF_RISK, LEVEL_OF_VIGILANCE, LIST)...")
+                    cursor.execute("""
+                        IF EXISTS (SELECT 1 FROM sys.columns WHERE name IN ('LEVEL_OF_RISK', 'LEVEL_OF_VIGILANCE', 'LIST') 
+                        AND object_id = OBJECT_ID('TblSanctionsMap'))
+                        BEGIN
+                            ALTER TABLE TblSanctionsMap 
+                            DROP COLUMN LEVEL_OF_RISK, LEVEL_OF_VIGILANCE, LIST;
+                        END
+                    """)
+                    cnx.commit()
 
-            # Ensure column can store the values properly
-            cursor.execute("""
-                ALTER TABLE TblCountries_New
-                ALTER COLUMN [US_-_OFAC__SANCTION_PROGRAM__(PER_COUNTRY)] NVARCHAR(50)
-            """)
-            cnx.commit()
+                    # Ensure the column can store the values properly
+                    logging.info("Ensuring column structure is correct...")
+                    cursor.execute("""
+                        ALTER TABLE TblSanctionsMap
+                        ALTER COLUMN [US_OFAC_SANCTIONS] NVARCHAR(50)
+                    """)
+                    cnx.commit()
 
-            # Set all countries to "NO" initially
-            cursor.execute("UPDATE TblCountries_New SET [US_-_OFAC__SANCTION_PROGRAM__(PER_COUNTRY)] = 'NO'")
-            cnx.commit()
+                    # Step 1: Set all countries to 'NO'
+                    logging.info("Setting all countries to 'NO'...")
+                    cursor.execute("""
+                        UPDATE TblSanctionsMap
+                        SET [US_OFAC_SANCTIONS] = 'NO'
+                    """)
+                    cnx.commit()
 
-            # Update the database based on CSV countries
-            cursor.execute("SELECT [COUNTRY_NAME_(ENG)] FROM TblCountries_New")
-            all_countries = cursor.fetchall()
+                    # Step 2: Update only the parsed countries to 'YES'
+                    csv_countries_list = list(csv_countries)
+                    max_params = 2000  # Stay within SQL Server's parameter limit
 
-            for country_row in all_countries:
-                country_name = unidecode(country_row[0].strip().upper())
-                status = 'YES' if any(country_name in csv_country for csv_country in csv_countries) else 'NO'
+                    logging.info(f"Updating {len(csv_countries_list)} countries to 'YES' in batches...")
 
-                update_query = """
-                    UPDATE TblCountries_New
-                    SET [US_-_OFAC__SANCTION_PROGRAM__(PER_COUNTRY)] = ?
-                    WHERE [COUNTRY_NAME_(ENG)] = ?
-                """
-                cursor.execute(update_query, status, country_name)
-                logging.info(f"Updated {country_name} to {status}")
+                    for i in range(0, len(csv_countries_list), max_params):
+                        batch = csv_countries_list[i:i + max_params]
+                        placeholders = ', '.join(['?'] * len(batch))
+                        update_yes_query = f"""
+                            UPDATE TblSanctionsMap
+                            SET [US_OFAC_SANCTIONS] = 'YES'
+                            WHERE REPLACE([COUNTRY_NAME_ENG], '’', '''') IN ({placeholders})
+                        """
+                        cursor.execute(update_yes_query, tuple(batch))
+                        cnx.commit()
 
-            cnx.commit()
-            cursor.close()
-            cnx.close()
+                        logging.info(f"Updated {len(batch)} countries to 'YES' in this batch.")
+
+                    # Step 3: Recreate computed columns (LEVEL_OF_RISK, LEVEL_OF_VIGILANCE, LIST)
+                    logging.info("Recreating computed columns (LEVEL_OF_RISK, LEVEL_OF_VIGILANCE, LIST)...")
+                    cursor.execute(get_sanctions_map_columns_sql())
+                    cnx.commit()
+
+                    logging.info("Computed columns recreated successfully.")
+
+        except pyodbc.Error as e:
+            logging.error(f"Database error during OFAC updates: {e}")
         except Exception as e:
-            logging.error(f"Error updating SQL database: {e}")
+            logging.error(f"General error during OFAC updates: {e}")
 
-    def check_database_changes_OFAC(self, csv_countries):
-        changes = []
+    def get_summary_of_yes_countries(self):
         try:
             cnx = pyodbc.connect(self.conn_str)
             cursor = cnx.cursor()
-            cursor.execute(
-                "SELECT [COUNTRY_NAME_(ENG)], [US_-_OFAC__SANCTION_PROGRAM__(PER_COUNTRY)] FROM TblCountries_New")
-            all_countries = cursor.fetchall()
-
-            for country_row in all_countries:
-                country_name = unidecode(country_row[0].strip().upper())
-                old_status = country_row[1] if country_row[1] is not None else 'NO'
-                new_status = 'YES' if any(country_name in csv_country for csv_country in csv_countries) else 'NO'
-                if old_status != new_status:
-                    changes.append((country_name, old_status, new_status))
-                    if new_status.upper() == 'YES':
-                        logging.info(f"Country: {country_name}, Old Status: {old_status}, New Status: {new_status}")
+            cursor.execute("""
+                SELECT [COUNTRY_NAME_ENG] 
+                FROM TblSanctionsMap 
+                WHERE [US_OFAC_SANCTIONS] = 'YES'
+            """)
+            yes_countries = cursor.fetchall()
+            yes_countries = [row[0] for row in yes_countries]
             cursor.close()
             cnx.close()
+
+            return yes_countries
+
         except Exception as e:
-            logging.error(f"Error checking database changes: {e}")
-        return changes
+            logging.error(f"Error fetching summary of 'YES' countries: {e}")
+            return []
 
 def main():
+    # Database name and CSV URL
     db_name = 'AXIOM_PARIS_TEST_CYRILLE'
-    csv_url = 'https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/CONS_PRIM.CSV'
+    csv_url = 'https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.CSV'
 
+    # Initialize the OFACUpdater
     updater = OFACUpdater(db_name)
 
     # Collect updates for OFAC
@@ -131,13 +168,9 @@ def main():
         logging.info("Updating the database with new OFAC data...")
         updater.update_database_OFAC(csv_countries)
 
-        # Check for changes in the database
-        changes = updater.check_database_changes_OFAC(csv_countries)
-        if changes:
-            logging.info("\nChanges detected in the database:")
-            for change in changes:
-                logging.info(f"Country: {change[0]}, Old Status: {change[1]}, New Status: {change[2]}")
-
+        # Get a summary of countries with 'YES' status
+        yes_countries = updater.get_summary_of_yes_countries()
+        logging.info(f"\nSummary of countries with 'YES' status in OFAC Sanction Program: {', '.join(yes_countries)}")
     else:
         logging.error("No OFAC sanctioned countries found or failed to parse the CSV content.")
 
