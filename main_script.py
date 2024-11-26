@@ -1,17 +1,11 @@
-"""
-This script is the main entry point for the Sanctions Matrix Updater.
-It calls the main functions of each parser and logs changes to the audit table.
-It also exports the updated database to an Excel file for review.
-It is intended to be run as a scheduled task or cron job.
-"""
-
 # Import required modules
 import os
 import datetime
 import logging
 import pyodbc
 from openpyxl import Workbook
-# from Email.email_sender import send_email
+
+# Import parser modules
 from Parser.CPI import main as cpi_main
 from Parser.EUFATF import main as eufatf_main
 from Parser.EUsanctions import main as eusanctions_main
@@ -34,13 +28,16 @@ def fetch_table_data(cursor, table_name):
     return rows, columns
 
 # Function to log changes to the audit table
+# Function to log changes to the audit table
+# Function to log changes to the audit table
 def log_changes_to_audit_table(cursor, old_rows, new_rows, columns):
     try:
-        # Flag to check if any changes were detected
-        changes_detected = False
+        changes_detected = False  # Flag to check if changes were detected
 
         for old_row, new_row in zip(old_rows, new_rows):
             country_name = old_row[columns.index('COUNTRY_NAME_ENG')]
+            country_id = old_row[columns.index('SanctionsMapId')]
+
 
             for i, column in enumerate(columns):
                 old_value = old_row[i]
@@ -48,36 +45,37 @@ def log_changes_to_audit_table(cursor, old_rows, new_rows, columns):
 
                 # Only log the change if the old value is different from the new value
                 if old_value != new_value:
-                    # Set the flag to true if a change is detected
-                    changes_detected = True
+                    changes_detected = True  # Set flag if change is detected
 
-                    # Log the specific change for this column
+                    # Log the specific change for this column (without Country_Code_ISO_3)
                     audit_sql = """
                         INSERT INTO TblSanctionsMap_Audit (
-                            CountryName, ColumnName, OldValue, NewValue, UpdatedAt
+                            SanctionsMapId, ColumnName, OldValue, NewValue, UpdatedAt
                         ) VALUES (?, ?, ?, ?, ?)
                     """
                     # Insert the change log into the audit table
-                    cursor.execute(audit_sql, country_name, column, old_value, new_value, datetime.datetime.now())
+                    cursor.execute(audit_sql, country_id, column, old_value, new_value, datetime.datetime.now())
                     logging.info(f"Logged change for {country_name} in column {column}: {old_value} -> {new_value}")
 
-        # Commit changes to the audit table
-        cursor.connection.commit()
-
-        # Insert a log if no changes were detected
-        if not changes_detected:
+        # Commit changes to the audit table if any changes were detected
+        if changes_detected:
+            cursor.connection.commit()
+        else:
+            # If no changes were detected, log this information
             audit_sql = """
                 INSERT INTO TblSanctionsMap_Audit (
-                    CountryName, ColumnName, OldValue, NewValue, UpdatedAt
+                    SanctionsMapId, ColumnName, OldValue, NewValue, UpdatedAt
                 ) VALUES (?, ?, ?, ?, ?)
             """
-            # Record a general message indicating no changes
-            cursor.execute(audit_sql, 'ALL', 'None', 'No changes detected', 'No changes detected', datetime.datetime.now())
+            cursor.execute(audit_sql, -1, 'None', 'No changes detected', 'No changes detected',
+                           datetime.datetime.now())
             cursor.connection.commit()
             logging.info("No changes detected. Logged to audit table.")
 
     except Exception as e:
+        cursor.connection.rollback()  # Roll back any pending transactions
         logging.error(f"Error logging changes to audit table: {e}")
+
 
 # Function to export the database to an Excel file
 def export_database_to_excel(db_name, export_folder):
@@ -138,7 +136,7 @@ def export_table_to_excel(cursor, table_name, export_folder):
 
 def main():
     # Database connection parameters
-    db_name = 'AXIOM_PARIS_TEST_CYRILLE'
+    db_name = 'AXIOM_PARIS'
 
     # Folder to export Excel files
     export_folder = 'A:\\Compliance\\AML-KYC\\Sanctions_excel_output'
@@ -172,20 +170,17 @@ def main():
         # Log changes to the audit table
         log_changes_to_audit_table(cursor, old_rows, new_rows, columns)
         logging.info("Changes logged to audit table.")
-        # Commit changes to the database
-        cnx.commit()
 
-        # Export updated data
+        # Export updated data to Excel
         export_database_to_excel(db_name, export_folder)
         export_table_to_excel(cursor, "TblSanctionsMap_Audit", export_folder)
-
 
         logging.info("Process completed successfully.")
 
     except Exception as e:
         logging.error(f"Error during processing: {e}")
         if cnx:
-            cnx.rollback()
+            cnx.rollback()  # Rollback in case of an error
 
     finally:
         if cnx:

@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from unidecode import unidecode
 import pyodbc
 import logging
-from Sanctions_system.Logic.ComputedLogic import get_sanctions_map_columns_sql
+from Logic.ComputedLogic import get_sanctions_map_columns_sql
 
 # Setting up logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -200,7 +200,7 @@ class EUTaxUpdater:
 
 
 def main():
-    db_name = 'AXIOM_PARIS_TEST_CYRILLE'
+    db_name = 'AXIOM_PARIS'
     html_url = 'https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A52024XG01804'
 
     updater = EUTaxUpdater(db_name)

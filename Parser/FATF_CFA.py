@@ -10,7 +10,7 @@ from unidecode import unidecode
 import pyodbc
 import logging
 from datetime import datetime
-from Sanctions_system.Logic.ComputedLogic import get_sanctions_map_columns_sql
+from Logic.ComputedLogic import get_sanctions_map_columns_sql
 
 # Setting up logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -38,19 +38,36 @@ class FATFCFAUpdater:
         return name
 
     # Method to build the URL for the latest FATF CFA data
-    def build_url(self):
-        base_url = 'https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/Call-for-action-{}.html'
-        months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
-        current_year = datetime.now().year
 
-        for year in range(current_year, 2027):
-            for month in months:
-                url = base_url.format(f'{month}-{year}')
-                response = requests.head(url)
-                if response.status_code == 200:
-                    logging.info(f"Found valid URL: {url}")
-                    return url
-        return None
+    def build_url(self):
+            base_url = 'https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/Call-for-action-{}-{}.html'
+            current_date = datetime.now()
+            year = current_date.year
+            month = current_date.month
+
+            # Determine the most recent FATF report month
+            if month >= 10:
+                report_month = 'october'
+            elif month >= 6:
+                report_month = 'june'
+            elif month >= 2:
+                report_month = 'february'
+            else:
+                # If before February, use the previous year's October report
+                report_month = 'october'
+                year -= 1
+
+            # Construct the URL
+            url = base_url.format(report_month, year)
+
+            # Check if the URL exists
+            response = requests.head(url)
+            if response.status_code == 200:
+                logging.info(f"Found valid URL: {url}")
+                return url
+            else:
+                logging.error(f"URL not found: {url}")
+                return None
 
     # Method to parse the HTML content and extract the high-risk countries
     def parse_html(self, url):
@@ -209,7 +226,7 @@ class FATFCFAUpdater:
 
 def main():
     # Initialize the FATF CFA updater
-    db_name = 'AXIOM_PARIS_TEST_CYRILLE'
+    db_name = 'AXIOM_PARIS'
 
     # Create an instance of the FATFCFAUpdater class
     updater = FATFCFAUpdater(db_name)

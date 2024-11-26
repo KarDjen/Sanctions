@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from unidecode import unidecode
 import pyodbc
 import logging
-from Sanctions_system.Logic.ComputedLogic import get_sanctions_map_columns_sql
+from Logic.ComputedLogic import get_sanctions_map_columns_sql
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -264,7 +264,7 @@ class FRSanctionsUpdater:
 
 def main():
     # Database name
-    db_name = 'AXIOM_PARIS_TEST_CYRILLE'
+    db_name = 'AXIOM_PARIS'
 
     # Initialize the updater
     updater = FRSanctionsUpdater(db_name)

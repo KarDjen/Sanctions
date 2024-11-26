@@ -235,7 +235,7 @@ class EUSanctionsUpdater:
         return changes
 
 def main():
-    db_name = 'AXIOM_PARIS_TEST_CYRILLE'
+    db_name = 'AXIOM_PARIS'
     regime_ids = range(1, 71)
 
     updater = EUSanctionsUpdater(db_name)

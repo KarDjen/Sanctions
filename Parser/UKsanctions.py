@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from unidecode import unidecode
 import pyodbc
 import logging
-from Sanctions_system.Logic.ComputedLogic import get_sanctions_map_columns_sql
+from Logic.ComputedLogic import get_sanctions_map_columns_sql
 
 #
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -198,7 +198,7 @@ class UKSanctionsUpdater:
 
 
 def main():
-    db_name = 'AXIOM_PARIS_TEST_CYRILLE'
+    db_name = 'AXIOM_PARIS'
     sanctions_url = 'https://www.gov.uk/government/collections/financial-sanctions-regime-specific-consolidated-lists-and-releases'
 
     updater = UKSanctionsUpdater(db_name)

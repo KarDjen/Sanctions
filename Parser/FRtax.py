@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 import pyodbc
 import logging
 from unidecode import unidecode
-from Sanctions_system.Logic.ComputedLogic import get_sanctions_map_columns_sql
+from Logic.ComputedLogic import get_sanctions_map_columns_sql
 
 # Set up the logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -190,7 +190,7 @@ class FRTaxUpdater:
 
 def main():
     # Define the database name and the URL to fetch the data from
-    db_name = 'AXIOM_PARIS_TEST_CYRILLE'
+    db_name = 'AXIOM_PARIS'
 
     # URL to fetch the data from
     html_url = 'https://www.douane.gouv.fr/actualites/lcb-ft-liste-des-etats-et-territoires-non-cooperatifs-en-matiere-fiscale'

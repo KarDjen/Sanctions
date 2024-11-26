@@ -203,7 +203,7 @@ class CPIUpdater:
 
 def main():
     # Database name
-    db_name = 'AXIOM_PARIS_TEST_CYRILLE'
+    db_name = 'AXIOM_PARIS'
 
     # Initialize the CPIUpdater object
     updater = CPIUpdater(db_name)

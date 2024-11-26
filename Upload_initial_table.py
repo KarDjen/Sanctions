@@ -129,7 +129,7 @@ class ConnectToDb:
                     cursor.execute("""
                         CREATE TABLE TblSanctionsMap_Audit (
                             AuditID INT IDENTITY(1,1) PRIMARY KEY,
-                            CountryName NVARCHAR(255),
+                            SanctionsMapId INT,
                             ColumnName NVARCHAR(255),
                             OldValue NVARCHAR(MAX),
                             NewValue NVARCHAR(MAX),
@@ -187,7 +187,7 @@ def main():
     # Define the path to the spreadsheet, the new table name, and the database name
     spreadsheet_path = 'U:\\New folder1\\BookTest.xlsx'
     new_table_name = 'TblSanctionsMap'
-    db_name = 'AXIOM_PARIS_TEST_CYRILLE'
+    db_name = 'AXIOM_PARIS'
 
     # Connect to the database
     db = ConnectToDb(db_name)
@@ -215,6 +215,7 @@ def main():
         logging.info("Creating new table...")
         create_table_command = f"""
             CREATE TABLE {new_table_name} (
+                [SanctionsMapId] INT IDENTITY(1,1) PRIMARY KEY,
                 [COUNTRY_NAME_ENG] NVARCHAR({column_lengths['COUNTRY_NAME_ENG']}),
                 [COUNTRY_NAME_FR] NVARCHAR({column_lengths['COUNTRY_NAME_FR']}),
                 [COUNTRY_CODE_ISO_2] NVARCHAR({column_lengths['COUNTRY_CODE_ISO_2']}),
