@@ -134,8 +134,8 @@ A flexible structure allows for easy addition of new parsers or modifications, e
 
 1. **Clone the Repository:**
    ```bash
-   git clone https://github.com/KarDjen/sanctions.git
-   cd sanctions
+   git clone https://github.com/KarDjen/sanctions-pipeline-automation.git
+   cd sanctions-pipeline-automation
 
 2. **Create a Virtual Environment (Optional but Recommended):**
     ```bash
