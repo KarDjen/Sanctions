@@ -1,5 +1,5 @@
 """
-This script is used to update the FATF CFA data in the TblSanctionsMap table of the Axiom Paris database.
+This script is used to update the FATF CFA data in the TblSanctionsMap table.
 It fetches the latest FATF CFA data from the FATF website and updates the database accordingly.
 """
 
