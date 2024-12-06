@@ -1,12 +1,19 @@
+"""
+This script fetches the EU sanctions data from the Sanctions Map website.
+It then compares the fetched data with the existing data in the SQL database and updates the database with the new data.
+The script also checks for any changes in the data and logs them.
+"""
+
+# Import required libraries
 import os
 import re
+import dotenv
 import requests
 import pyodbc
 import logging
 from io import BytesIO
 from unidecode import unidecode
 import PyPDF2
-
 
 # Load environment variables from .env file
 dotenv.load_dotenv()

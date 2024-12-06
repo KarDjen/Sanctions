@@ -2,10 +2,10 @@
 This script is used to update the FATF CFA data in the TblSanctionsMap table of the Axiom Paris database.
 It fetches the latest FATF CFA data from the FATF website and updates the database accordingly.
 """
-import os
 
-import dotenv
 # Importing required libraries
+import os
+import dotenv
 import requests
 from bs4 import BeautifulSoup
 from unidecode import unidecode

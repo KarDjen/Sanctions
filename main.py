@@ -1,3 +1,14 @@
+"""
+This script is the main entry point for the Sanctions Pipeline Automation project.
+It orchestrates the execution of all the parser modules and updates the database with the new data.
+It also exports the audit table to an Excel file for record-keeping.
+
+This script can be run as a cron job or scheduled task to periodically update the sanctions data in the database.
+"""
+
+
+
+# Import necessary libraries
 import os
 import datetime
 import logging

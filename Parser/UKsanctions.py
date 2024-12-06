@@ -2,9 +2,10 @@
 This script is used to parse the UK financial sanctions list and update the SQL database with the new data.
 It also checks for changes in the database and logs the changes.
 """
+
+# Import necessary libraries
 import os
 import re
-
 import dotenv
 import requests
 from bs4 import BeautifulSoup
@@ -16,7 +17,7 @@ from Logic.ComputedLogic import get_sanctions_map_columns_sql
 # Load environment variables from .env file
 dotenv.load_dotenv()
 
-#
+# Set up logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Retrieve database connection parameters from environment variables

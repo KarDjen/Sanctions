@@ -2,8 +2,9 @@
 This script is used to update the FATF IM data in the database. It scrapes the FATF website for the latest sanctions data.
 It then updates the database with the new data and checks for any changes. The changes are logged for auditing purposes.
 """
-import os
 
+# Import required libraries
+import os
 import dotenv
 import requests
 from bs4 import BeautifulSoup

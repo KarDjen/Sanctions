@@ -3,10 +3,10 @@ This script is used to update the 'FR_LIST_OF_NON_COOPERATIVE_JURISDICTIONS' col
 The script fetches the list of non-cooperative jurisdictions from the French Customs website and updates the database accordingly.
 It also checks for changes in the database and logs the changes.
 """
-import os
+
 # Import the required libraries
 import re
-
+import os
 import dotenv
 import requests
 from bs4 import BeautifulSoup

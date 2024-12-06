@@ -2,10 +2,10 @@
 This script is used to parse the EU tax list and update the SQL database with the new data.
 It also checks for changes in the database and logs the changes.
 """
-import os
+
 # Importing required libraries
 import re
-
+import os
 import dotenv
 import requests
 from bs4 import BeautifulSoup

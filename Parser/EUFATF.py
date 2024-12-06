@@ -2,10 +2,10 @@
 This script is used to parse the EU FATF website and update the database with the high-risk countries.
 It also checks for changes in the database and logs the changes.
 """
-import os
 
-import dotenv
 # Importing required libraries
+import os
+import dotenv
 import requests
 from bs4 import BeautifulSoup
 from unidecode import unidecode

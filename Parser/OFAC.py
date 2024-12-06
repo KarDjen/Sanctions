@@ -1,5 +1,10 @@
-import os
+"""
+This script fetches the OFAC sanctions list from the OFAC website and updates the database with the new data.
+It also provides a summary of countries with 'YES' status in the OFAC Sanction Program.
+"""
 
+# Import necessary libraries
+import os
 import dotenv
 import requests
 import csv

@@ -3,9 +3,10 @@ This script is used to update the sanctions columns for France in the TblSanctio
 It scrapes the French Treasury website to get the latest sanctions information for each country.
 It then updates the database with the new information and logs any changes.
 """
+
+# Import required libraries
 import os
 import re
-
 import dotenv
 import requests
 from bs4 import BeautifulSoup
