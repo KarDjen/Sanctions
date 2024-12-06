@@ -3,10 +3,11 @@ This script is used to update the 'FR_LIST_OF_NON_COOPERATIVE_JURISDICTIONS' col
 The script fetches the list of non-cooperative jurisdictions from the French Customs website and updates the database accordingly.
 It also checks for changes in the database and logs the changes.
 """
-
-
+import os
 # Import the required libraries
 import re
+
+import dotenv
 import requests
 from bs4 import BeautifulSoup
 import pyodbc
@@ -14,8 +15,17 @@ import logging
 from unidecode import unidecode
 from Logic.ComputedLogic import get_sanctions_map_columns_sql
 
+# Load environment variables from .env file
+dotenv.load_dotenv()
+
 # Set up the logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Retrieve database connection parameters from environment variables
+server = os.getenv('SERVER')
+database = os.getenv('DATABASE')
+uid = os.getenv('UID')
+pwd = os.getenv('PWD')
 
 # Define the class for updating the French tax list
 class FRTaxUpdater:
@@ -25,10 +35,10 @@ class FRTaxUpdater:
         self.db_name = db_name
         self.conn_str = (
             f'DRIVER={{SQL Server}};'
-            f'SERVER=SRV-SQL01\\SQL02;'
-            f'DATABASE={db_name};'
-            f'UID=sa;'
-            f'PWD=Ax10mPar1$'
+            f'SERVER={server};'
+            f'DATABASE={database};'
+            f'UID={uid};'
+            f'PWD={pwd}'
         )
         self.updates = []
         self.changes = []
@@ -189,13 +199,12 @@ class FRTaxUpdater:
         return changes
 
 def main():
-    # Define the database name and the URL to fetch the data from
-    db_name = 'AXIOM_PARIS'
+
 
     # URL to fetch the data from
     html_url = 'https://www.douane.gouv.fr/actualites/lcb-ft-liste-des-etats-et-territoires-non-cooperatifs-en-matiere-fiscale'
 
-    updater = FRTaxUpdater(db_name)
+    updater = FRTaxUpdater(database)
 
     # Parse the HTML to get the non-cooperative jurisdictions
     countries = updater.parse_html(html_url)

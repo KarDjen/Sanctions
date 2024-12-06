@@ -2,7 +2,9 @@
 This script is used to parse the EU FATF website and update the database with the high-risk countries.
 It also checks for changes in the database and logs the changes.
 """
+import os
 
+import dotenv
 # Importing required libraries
 import requests
 from bs4 import BeautifulSoup
@@ -11,8 +13,17 @@ import pyodbc
 import logging
 from Logic.ComputedLogic import get_sanctions_map_columns_sql
 
+
+# Load environment variables from .env file
+dotenv.load_dotenv()
+
 # Setting up the logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+server = os.getenv('SERVER')
+database = os.getenv('DATABASE')
+uid = os.getenv('UID')
+pwd = os.getenv('PWD')
 
 # Defining the EUFATFUpdater class
 class EUFATFUpdater:
@@ -22,10 +33,10 @@ class EUFATFUpdater:
         self.db_name = db_name
         self.conn_str = (
             f'DRIVER={{SQL Server}};'
-            f'SERVER=SRV-SQL01\\SQL02;'
-            f'DATABASE={db_name};'
-            f'UID=sa;'
-            f'PWD=Ax10mPar1$'
+            f'SERVER={server};'
+            f'DATABASE={database};'
+            f'UID={uid};'
+            f'PWD={pwd}'
         )
         self.updates = []
         self.changes = []
@@ -205,13 +216,11 @@ class EUFATFUpdater:
 
 def main():
 
-    # Define the database name and the URL of the EU FATF website
-    db_name = 'AXIOM_PARIS'
 
     # URL of the EU FATF website
     html_url = 'https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-international-level_en'
 
-    updater = EUFATFUpdater(db_name)
+    updater = EUFATFUpdater(database)
 
     # Parse the HTML to get the high-risk countries
     high_risk_countries = updater.parse_html(html_url)

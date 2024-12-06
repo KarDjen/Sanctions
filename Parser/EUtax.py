@@ -2,9 +2,11 @@
 This script is used to parse the EU tax list and update the SQL database with the new data.
 It also checks for changes in the database and logs the changes.
 """
-
+import os
 # Importing required libraries
 import re
+
+import dotenv
 import requests
 from bs4 import BeautifulSoup
 from unidecode import unidecode
@@ -12,8 +14,18 @@ import pyodbc
 import logging
 from Logic.ComputedLogic import get_sanctions_map_columns_sql
 
+# Load environment variables from .env file
+dotenv.load_dotenv()
+
 # Setting up logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Retrieve database connection parameters from environment variables
+server = os.getenv('SERVER')
+database = os.getenv('DATABASE')
+uid = os.getenv('UID')
+pwd = os.getenv('PWD')
+
 
 # Class to handle EU tax list updates
 class EUTaxUpdater:
@@ -23,10 +35,10 @@ class EUTaxUpdater:
         self.db_name = db_name
         self.conn_str = (
             f'DRIVER={{SQL Server}};'
-            f'SERVER=SRV-SQL01\\SQL02;'
-            f'DATABASE={db_name};'
-            f'UID=sa;'
-            f'PWD=Ax10mPar1$'
+            f'SERVER={server};'
+            f'DATABASE={database};'
+            f'UID={uid};'
+            f'PWD={pwd}'
         )
         self.updates = []
         self.changes = []
@@ -200,10 +212,10 @@ class EUTaxUpdater:
 
 
 def main():
-    db_name = 'AXIOM_PARIS'
+
     html_url = 'https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A52024XG01804'
 
-    updater = EUTaxUpdater(db_name)
+    updater = EUTaxUpdater(database)
 
     # Parse the HTML to get the non-cooperative and under-way countries
     non_cooperative_countries, under_way_countries = updater.parse_html(html_url)

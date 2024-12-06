@@ -1,3 +1,6 @@
+import os
+
+import dotenv
 import requests
 import csv
 from unidecode import unidecode
@@ -8,18 +11,28 @@ from requests.packages.urllib3.util.retry import Retry
 import re
 from Logic.ComputedLogic import get_sanctions_map_columns_sql
 
+# Load environment variables from .env file
+dotenv.load_dotenv()
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Retrieve database connection parameters from environment variables
+server = os.getenv('SERVER')
+database = os.getenv('DATABASE')
+uid = os.getenv('UID')
+pwd = os.getenv('PWD')
+
 
 class OFACUpdater:
     def __init__(self, db_name):
         self.db_name = db_name
         self.conn_str = (
             f'DRIVER={{SQL Server}};'
-            f'SERVER=SRV-SQL01\\SQL02;'
-            f'DATABASE={db_name};'
-            f'UID=sa;'
-            f'PWD=Ax10mPar1$'
+            f'SERVER={server};'
+            f'DATABASE={database};'
+            f'UID={uid};'
+            f'PWD={pwd}'
         )
 
     def normalize_country_name(self, name):
@@ -153,11 +166,11 @@ class OFACUpdater:
 
 def main():
     # Database name and CSV URL
-    db_name = 'AXIOM_PARIS'
+
     csv_url = 'https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.CSV'
 
     # Initialize the OFACUpdater
-    updater = OFACUpdater(db_name)
+    updater = OFACUpdater(database)
 
     # Collect updates for OFAC
     csv_countries = updater.collect_updates(csv_url)

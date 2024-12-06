@@ -2,7 +2,9 @@
 This script is used to update the FATF IM data in the database. It scrapes the FATF website for the latest sanctions data.
 It then updates the database with the new data and checks for any changes. The changes are logged for auditing purposes.
 """
+import os
 
+import dotenv
 import requests
 from bs4 import BeautifulSoup
 from unidecode import unidecode
@@ -11,8 +13,17 @@ import logging
 from datetime import datetime
 from Logic.ComputedLogic import get_sanctions_map_columns_sql
 
+# Load environment variables from .env file
+dotenv.load_dotenv()
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Retrieve database connection parameters from environment variables
+server = os.getenv('SERVER')
+database = os.getenv('DATABASE')
+uid = os.getenv('UID')
+pwd = os.getenv('PWD')
 
 # This class is used to update the FATF IM data in the database
 class FATFIMUpdater:
@@ -22,10 +33,10 @@ class FATFIMUpdater:
         self.db_name = db_name
         self.conn_str = (
             f'DRIVER={{SQL Server}};'
-            f'SERVER=SRV-SQL01\\SQL02;'
-            f'DATABASE={db_name};'
-            f'UID=sa;'
-            f'PWD=Ax10mPar1$'
+            f'SERVER={server};'
+            f'DATABASE={database};'
+            f'UID={uid};'
+            f'PWD={pwd}'
         )
         self.updates = []
         self.changes = []
@@ -207,10 +218,9 @@ class FATFIMUpdater:
 
 def main():
     # Initialize the FATF IM updater
-    db_name = 'AXIOM_PARIS'
 
     # Create an instance of the FATF IM updater
-    updater = FATFIMUpdater(db_name)
+    updater = FATFIMUpdater(database)
 
     # Build URL for the latest available increased monitoring page
     url = updater.build_url()

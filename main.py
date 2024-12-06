@@ -1,8 +1,8 @@
-# Import required modules
 import os
 import datetime
 import logging
 import pyodbc
+import dotenv
 from openpyxl import Workbook
 
 # Import parser modules
@@ -17,6 +17,9 @@ from Parser.FRtax import main as frtax_main
 from Parser.OFAC import main as ofac_main
 from Parser.UKsanctions import main as uksanctions_main
 
+# Load environment variables from .env file
+dotenv.load_dotenv()
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -28,94 +31,41 @@ def fetch_table_data(cursor, table_name):
     return rows, columns
 
 # Function to log changes to the audit table
-# Function to log changes to the audit table
-# Function to log changes to the audit table
 def log_changes_to_audit_table(cursor, old_rows, new_rows, columns):
     try:
-        changes_detected = False  # Flag to check if changes were detected
+        changes_detected = False
 
         for old_row, new_row in zip(old_rows, new_rows):
-            country_name = old_row[columns.index('COUNTRY_NAME_ENG')]
             country_id = old_row[columns.index('SanctionsMapId')]
-
 
             for i, column in enumerate(columns):
                 old_value = old_row[i]
                 new_value = new_row[i]
 
-                # Only log the change if the old value is different from the new value
                 if old_value != new_value:
-                    changes_detected = True  # Set flag if change is detected
-
-                    # Log the specific change for this column (without Country_Code_ISO_3)
+                    changes_detected = True
                     audit_sql = """
                         INSERT INTO TblSanctionsMap_Audit (
                             SanctionsMapId, ColumnName, OldValue, NewValue, UpdatedAt
                         ) VALUES (?, ?, ?, ?, ?)
                     """
-                    # Insert the change log into the audit table
                     cursor.execute(audit_sql, country_id, column, old_value, new_value, datetime.datetime.now())
-                    logging.info(f"Logged change for {country_name} in column {column}: {old_value} -> {new_value}")
+                    logging.info(f"Logged change for ID {country_id} in column {column}: {old_value} -> {new_value}")
 
-        # Commit changes to the audit table if any changes were detected
         if changes_detected:
             cursor.connection.commit()
         else:
-            # If no changes were detected, log this information
             audit_sql = """
                 INSERT INTO TblSanctionsMap_Audit (
                     SanctionsMapId, ColumnName, OldValue, NewValue, UpdatedAt
                 ) VALUES (?, ?, ?, ?, ?)
             """
-            cursor.execute(audit_sql, -1, 'None', 'No changes detected', 'No changes detected',
-                           datetime.datetime.now())
+            cursor.execute(audit_sql, -1, 'None', 'No changes detected', 'No changes detected', datetime.datetime.now())
             cursor.connection.commit()
             logging.info("No changes detected. Logged to audit table.")
-
     except Exception as e:
-        cursor.connection.rollback()  # Roll back any pending transactions
+        cursor.connection.rollback()
         logging.error(f"Error logging changes to audit table: {e}")
-
-
-# Function to export the database to an Excel file
-def export_database_to_excel(db_name, export_folder):
-    try:
-        conn_str = (
-            f'DRIVER={{SQL Server}};'
-            f'SERVER=SRV-SQL01\\SQL02;'
-            f'DATABASE={db_name};'
-            f'UID=sa;'
-            f'PWD=Ax10mPar1$'
-        )
-        cnx = pyodbc.connect(conn_str)
-        cursor = cnx.cursor()
-
-        # Fetch data from the TblSanctionsMap table
-        rows, columns = fetch_table_data(cursor, "TblSanctionsMap")
-
-        # Create a new Excel workbook and add data
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Countries Data"
-
-        # Write column headers
-        ws.append(columns)
-
-        # Write data rows
-        for row in rows:
-            ws.append(list(row))
-
-        # Save the workbook with a timestamp in the filename
-        date_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        export_path = os.path.join(export_folder, f"Sanctions_Matrix_{date_str}.xlsx")
-        wb.save(export_path)
-
-        logging.info(f"Database exported to: {export_path}")
-
-        cursor.close()
-        cnx.close()
-    except Exception as e:
-        logging.error(f"Error exporting database to Excel: {e}")
 
 # Function to export a specific table to an Excel file
 def export_table_to_excel(cursor, table_name, export_folder):
@@ -136,24 +86,30 @@ def export_table_to_excel(cursor, table_name, export_folder):
 
 def main():
     # Database connection parameters
-    db_name = 'AXIOM_PARIS'
+    server = os.getenv('SERVER')
+    database = os.getenv('DATABASE')
+    uid = os.getenv('UID')
+    pwd = os.getenv('PWD')
+    export_folder = os.getenv('EXPORT_FOLDER')
 
-    # Folder to export Excel files
-    export_folder = 'A:\\Compliance\\AML-KYC\\Sanctions_excel_output'
+    # Validate environment variables
+    if not all([server, database, uid, pwd]):
+        logging.error("Missing required environment variables.")
+        return
+
+    conn_str = (
+        f'DRIVER={{SQL Server}};'
+        f'SERVER={server};'
+        f'DATABASE={database};'
+        f'UID={uid};'
+        f'PWD={pwd}'
+    )
 
     cnx = None
     try:
-        conn_str = (
-            f'DRIVER={{SQL Server}};'
-            f'SERVER=SRV-SQL01\\SQL02;'
-            f'DATABASE={db_name};'
-            f'UID=sa;'
-            f'PWD=Ax10mPar1$'
-        )
         cnx = pyodbc.connect(conn_str)
         cursor = cnx.cursor()
 
-        # Fetch old data before updates
         old_rows, columns = fetch_table_data(cursor, "TblSanctionsMap")
 
         # Call main functions of each updater
@@ -164,27 +120,18 @@ def main():
             except Exception as e:
                 logging.error(f"Error during updater execution: {e}")
 
-        # Fetch new data after updates
         new_rows, _ = fetch_table_data(cursor, "TblSanctionsMap")
 
-        # Log changes to the audit table
         log_changes_to_audit_table(cursor, old_rows, new_rows, columns)
-        logging.info("Changes logged to audit table.")
-
-        # Export updated data to Excel
-        export_database_to_excel(db_name, export_folder)
         export_table_to_excel(cursor, "TblSanctionsMap_Audit", export_folder)
 
         logging.info("Process completed successfully.")
-
     except Exception as e:
         logging.error(f"Error during processing: {e}")
-        if cnx:
-            cnx.rollback()  # Rollback in case of an error
-
     finally:
         if cnx:
             cnx.close()
 
 if __name__ == "__main__":
     main()
+

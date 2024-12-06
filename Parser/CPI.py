@@ -3,9 +3,11 @@ This script fetches the Corruption Perceptions Index (CPI) data from the Transpa
 It then compares the fetched data with the existing data in the SQL database and updates the database with the new data.
 The script also checks for any changes in the data and logs them.
 """
-
+import os
 # Importing required libraries
 import re
+
+import dotenv
 import requests
 from bs4 import BeautifulSoup
 from unidecode import unidecode
@@ -13,8 +15,21 @@ import pyodbc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
+
+# Load environment variables from .env file
+dotenv.load_dotenv()
+
+
 # Setting up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+# Retrieve database connection parameters from environment variables
+server = os.getenv('SERVER')
+database = os.getenv('DATABASE')
+uid = os.getenv('UID')
+pwd = os.getenv('PWD')
+
 
 # Class to update the Corruption Perceptions Index (CPI) data in the SQL database
 class CPIUpdater:
@@ -24,10 +39,10 @@ class CPIUpdater:
         self.db_name = db_name
         self.conn_str = (
             f'DRIVER={{SQL Server}};'
-            f'SERVER=SRV-SQL01\\SQL02;'
-            f'DATABASE={db_name};'
-            f'UID=sa;'
-            f'PWD=Ax10mPar1$'
+            f'SERVER={server};'
+            f'DATABASE={database};'
+            f'UID={uid};'
+            f'PWD={pwd}'
         )
         self.updates = []
         self.changes = []
@@ -202,11 +217,9 @@ class CPIUpdater:
 
 
 def main():
-    # Database name
-    db_name = 'AXIOM_PARIS'
 
     # Initialize the CPIUpdater object
-    updater = CPIUpdater(db_name)
+    updater = CPIUpdater(database)
 
     # Fetch countries from the database
     countries = updater.get_countries_from_database()

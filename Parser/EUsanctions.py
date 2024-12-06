@@ -1,3 +1,4 @@
+import os
 import re
 import requests
 import pyodbc
@@ -6,8 +7,19 @@ from io import BytesIO
 from unidecode import unidecode
 import PyPDF2
 
+
+# Load environment variables from .env file
+dotenv.load_dotenv()
+
 # Set up logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Retrieve database connection parameters from environment variables
+server = os.getenv('SERVER')
+database = os.getenv('DATABASE')
+uid = os.getenv('UID')
+pwd = os.getenv('PWD')
+
 
 # Define the EUSanctionsUpdater class
 class EUSanctionsUpdater:
@@ -17,10 +29,10 @@ class EUSanctionsUpdater:
         self.db_name = db_name
         self.conn_str = (
             f'DRIVER={{SQL Server}};'
-            f'SERVER=SRV-SQL01\\SQL02;'
-            f'DATABASE={db_name};'
-            f'UID=sa;'
-            f'PWD=Ax10mPar1$'
+            f'SERVER={server};'
+            f'DATABASE={database};'
+            f'UID={uid};'
+            f'PWD={pwd}'
         )
         self.measures_dict = {
             re.compile(r'Asset freeze and prohibition to make funds available', re.IGNORECASE): 'EU_ASSET_FREEZE_AND_PROHIBITION_TO_MAKE_FUNDS_AVAILABLE',
@@ -235,10 +247,10 @@ class EUSanctionsUpdater:
         return changes
 
 def main():
-    db_name = 'AXIOM_PARIS'
+
     regime_ids = range(1, 71)
 
-    updater = EUSanctionsUpdater(db_name)
+    updater = EUSanctionsUpdater(database)
 
     try:
         all_updates = {}

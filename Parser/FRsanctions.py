@@ -3,8 +3,10 @@ This script is used to update the sanctions columns for France in the TblSanctio
 It scrapes the French Treasury website to get the latest sanctions information for each country.
 It then updates the database with the new information and logs any changes.
 """
-
+import os
 import re
+
+import dotenv
 import requests
 from bs4 import BeautifulSoup
 from unidecode import unidecode
@@ -12,8 +14,18 @@ import pyodbc
 import logging
 from Logic.ComputedLogic import get_sanctions_map_columns_sql
 
+
+# Load environment variables from .env file
+dotenv.load_dotenv()
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Retrieve database connection parameters from environment variables
+server = os.getenv('SERVER')
+database = os.getenv('DATABASE')
+uid = os.getenv('UID')
+pwd = os.getenv('PWD')
 
 # Class to handle the French sanctions updates
 class FRSanctionsUpdater:
@@ -23,10 +35,10 @@ class FRSanctionsUpdater:
         self.db_name = db_name
         self.conn_str = (
             f'DRIVER={{SQL Server}};'
-            f'SERVER=SRV-SQL01\\SQL02;'
-            f'DATABASE={db_name};'
-            f'UID=sa;'
-            f'PWD=Ax10mPar1$'
+            f'SERVER={server};'
+            f'DATABASE={database};'
+            f'UID={uid};'
+            f'PWD={pwd}'
         )
         self.measures_dict = {
             re.compile(r'gel[s]? des avoirs|gels d\'avoirs', re.IGNORECASE): ('Asset Freezes', '[FR_ASSET_FREEEZE]'),
@@ -263,11 +275,10 @@ class FRSanctionsUpdater:
 
 
 def main():
-    # Database name
-    db_name = 'AXIOM_PARIS'
+
 
     # Initialize the updater
-    updater = FRSanctionsUpdater(db_name)
+    updater = FRSanctionsUpdater(database)
 
     try:
         # Collect updates for FR sanctions

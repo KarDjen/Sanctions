@@ -2,7 +2,9 @@
 This script is used to update the FATF CFA data in the TblSanctionsMap table of the Axiom Paris database.
 It fetches the latest FATF CFA data from the FATF website and updates the database accordingly.
 """
+import os
 
+import dotenv
 # Importing required libraries
 import requests
 from bs4 import BeautifulSoup
@@ -12,8 +14,18 @@ import logging
 from datetime import datetime
 from Logic.ComputedLogic import get_sanctions_map_columns_sql
 
+
+# Load environment variables from .env file
+dotenv.load_dotenv()
+
 # Setting up logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Retrieve database connection parameters from environment variables
+server = os.getenv('SERVER')
+database = os.getenv('DATABASE')
+uid = os.getenv('UID')
+pwd = os.getenv('PWD')
 
 # Defining the FATFCFAUpdater class
 class FATFCFAUpdater:
@@ -24,10 +36,10 @@ class FATFCFAUpdater:
         self.db_name = db_name
         self.conn_str = (
             f'DRIVER={{SQL Server}};'
-            f'SERVER=SRV-SQL01\\SQL02;'
-            f'DATABASE={self.db_name};'
-            f'UID=sa;'
-            f'PWD=Ax10mPar1$'
+            f'SERVER={server};'
+            f'DATABASE={database};'
+            f'UID={uid};'
+            f'PWD={pwd}'
         )
 
     # Method to normalize the country name
@@ -225,11 +237,10 @@ class FATFCFAUpdater:
         return changes
 
 def main():
-    # Initialize the FATF CFA updater
-    db_name = 'AXIOM_PARIS'
+
 
     # Create an instance of the FATFCFAUpdater class
-    updater = FATFCFAUpdater(db_name)
+    updater = FATFCFAUpdater(database)
 
     # Build URL for the latest available call for action page
     url = updater.build_url()
